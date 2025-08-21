@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from sklearn.model_selection import train_test_split
 import itertools
+import random
 
 
 ### Dataset ###
@@ -39,18 +40,6 @@ BLOCK_SIZE  = 80_000
 TRAIN_OFFSET = VAL_SIZE             
 TRAIN_SIZE   = TOTAL_TRAIN  
 
-N_TRIALS = 50                     
-MAX_EPOCHS = 100
-PATIENCE = 10                                          
-D_MLP_FACTOR = 4                
-N_CTX = 64
-
-D_MODEL_CHOICES = [256]
-LAYER_CHOICES = [3]
-HEAD_CHOICES  = [2]
-ATTN_ONLY_CHOICES = [True]
-WD_CHOICES = [0.01]
-LR = [5e-4]
 
 def produce_example_by_index(idx: int, *, allow_self_loops: bool = False):
     rng = np.random.default_rng(np.random.SeedSequence([BASE_SEED, idx]))
@@ -73,10 +62,31 @@ def produce_example_by_index(idx: int, *, allow_self_loops: bool = False):
     q_idx = int(rng.integers(0, k))
     Eq, Tq, E2q = facts[q_idx]
 
+    if rng.random() < 0.75 and len(facts) < MAX_FACTS:
+        distractor_t = int(rng.integers(0, T)) + E
+
+        while distractor_t == Tq: # Ensure the relation is different
+            distractor_t = int(rng.integers(0, T)) + E
+
+        distractor_e2 = int(rng.integers(0, E))
+        while distractor_e2 == E2q: # Ensure the tail is different
+            distractor_e2 = int(rng.integers(0, E))
+
+        # Add the distractor fact IF it doesn't create a collision
+        if (Eq, distractor_t) not in seen_head_rel:
+            distractor_fact = (Eq, distractor_t, distractor_e2)
+
+            insert_pos = int(rng.integers(0, len(facts) + 1))
+            facts.insert(insert_pos, distractor_fact)
+            
     seq = []
     for (e, t, e2) in facts:
         seq.extend([e, t, e2, SEP])
+    
+    #if random.random() < 0.5
     seq.extend([Tq, Eq, Q])
+    #else:
+    #    seq.extend([Eq, Tq, Q])
 
     label = E2q
     return seq, label
@@ -153,6 +163,22 @@ def compute_accuracy(logits: torch.Tensor, targets: torch.Tensor, ignore_index: 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
+N_TRIALS = 50                     
+MAX_EPOCHS = 100
+PATIENCE = 50                                          
+D_MLP_FACTOR = 4                
+N_CTX = 64
+
+D_MODEL_CHOICES = [256]
+LAYER_CHOICES = [4]
+HEAD_CHOICES  = [2]
+ATTN_ONLY_CHOICES = [True]
+WD_CHOICES = [0.01]
+LR = [5e-4]
+
+
+
 def build_model(d_model, n_layers, n_heads, attn_only):
     if d_model % n_heads != 0:
         return None
@@ -173,10 +199,13 @@ def build_model(d_model, n_layers, n_heads, attn_only):
         use_attn_result=True,
         use_hook_tokens=True,
         device=device,
+        positional_embedding_type="rotary",
     )
     return HookedTransformer(cfg)
 
-
+# --------------------------
+# Training / evaluation
+# --------------------------
 def current_lr(opt): return opt.param_groups[0]["lr"]
 
 
@@ -207,8 +236,8 @@ def run_trial(trial_id, cfg_dict, *, log_tb=True):
     best_epoch = -1
     epochs_no_improve = 0
     global_step = 0
-    ckpt_path = f"ckpts/{run_name}.pt"
-    os.makedirs("ckpts", exist_ok=True)
+    ckpt_path = f"ckpts-std/{run_name}.pt"
+    os.makedirs("ckpts-std", exist_ok=True)
 
     for epoch in range(1, MAX_EPOCHS+1):
         train_dataset.set_epoch(epoch)
@@ -290,6 +319,9 @@ def run_trial(trial_id, cfg_dict, *, log_tb=True):
         "run_name": run_name,
     }
 
+# --------------------------
+# Random search driver
+# --------------------------
 def random_search(n_trials=N_TRIALS, log_tb=True):
     rng = np.random.default_rng(124)
     all_cfgs = list(itertools.product(D_MODEL_CHOICES, LAYER_CHOICES, HEAD_CHOICES,
