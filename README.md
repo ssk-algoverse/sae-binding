@@ -4,6 +4,7 @@
 * `binding_echo`: notebook for finding echo features, etc
 * `circuit`: activation patterns for a circuit
 * `sae`: train a sparse autoencoder and extract SAE features
+   * https://github.com/iamsusiep/dl-quick-train/tree/sujip 
 
 ### Models
 
