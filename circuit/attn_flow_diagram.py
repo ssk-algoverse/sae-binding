@@ -840,17 +840,17 @@ def compute_nonimpactful_attention_positions(
                 for q_pos in range(seq_len):
                     for k_pos in range(seq_len):
 
-                    def ablate_one_key(
-                        pat, hook, head_idx=h, query_idx=q_pos, key_idx=k_pos
-                    ):
-                        pat[:, head_idx, query_idx, key_idx] = 0.0
-                        return pat
+                        def ablate_one_key(
+                            pat, hook, head_idx=h, query_idx=q_pos, key_idx=k_pos
+                        ):
+                            pat[:, head_idx, query_idx, key_idx] = 0.0
+                            return pat
 
-                    logits = model.run_with_hooks(
-                        toks_b,
-                        return_type="logits",
-                        fwd_hooks=[(f"blocks.{l}.attn.hook_pattern", ablate_one_key)],
-                    )
+                        logits = model.run_with_hooks(
+                            toks_b,
+                            return_type="logits",
+                            fwd_hooks=[(f"blocks.{l}.attn.hook_pattern", ablate_one_key)],
+                        )
 
                         loss[l, h, q_pos, k_pos] = (logits[0, -1] - base_logits).abs().sum()
                         pbar.update(1)
@@ -987,7 +987,11 @@ def plot_attention_flow(
                 xy=(lx + 1, y),
                 xytext=(lx, y),
                 arrowprops=dict(
-                    arrowstyle="->", lw=1.2, linestyle="--", color="gray", alpha=0.6
+                    arrowstyle="->",
+                    lw=1.5,
+                    linestyle="--",
+                    color="black",
+                    alpha=0.8,
                 ),
                 zorder=0,
             )
@@ -1001,11 +1005,18 @@ def plot_attention_flow(
                     continue
                 x0, y0 = l, y_positions[k]
                 x1, y1 = l + 1, y_positions[q]
+                # Use a minimum alpha so edges are visibly darker
+                alpha_val = 0.35 + 0.65 * float(w)
                 ax.annotate(
                     "",
                     xy=(x1, y1),
                     xytext=(x0, y0),
-                    arrowprops=dict(arrowstyle="->", lw=1 + 4 * w, alpha=w),
+                    arrowprops=dict(
+                        arrowstyle="->",
+                        lw=1 + 4 * w,
+                        alpha=alpha_val,
+                        color="black",
+                    ),
                 )
 
     # Axes labels/ticks
@@ -1029,8 +1040,8 @@ def plot_attention_flow(
                 [0],
                 [0],
                 linestyle="--",
-                color="gray",
-                lw=1.5,
+                color="black",
+                lw=1.8,
                 label="Residual stream (dotted)",
             ),
             Line2D(
@@ -1038,7 +1049,7 @@ def plot_attention_flow(
                 [0],
                 linestyle="-",
                 color="black",
-                lw=1.5,
+                lw=1.8,
                 label="Attention (solid)",
             ),
         ]
@@ -1124,7 +1135,7 @@ def plot_attention_flow_panel(
             [0],
             [0],
             linestyle="--",
-            color="gray",
+            color="black",
             lw=1.5,
             label="Residual stream (dotted)",
         ),
@@ -1155,7 +1166,10 @@ answer_token = tokenizer("James")["input_ids"][1:]
 ablation_losses = compute_nonimpactful_attention_positions(
     model, tokens, device="mps", verbose=True, use_cache=True, cache_dir="./cache",
 )
-keep_mask = ablation_losses > 10
+keep_mask = ablation_losses > 1000
+# Hide edges from the bos token 
+keep_mask[:, :, :, 0] = False
+print(f"Keeping {keep_mask.nonzero().size(0) / keep_mask.numel():.2%}")
 
 # uncomment below if you want to keep all the edges
 # [n_layers, n_heads, seq_len, seq_len]
@@ -1178,17 +1192,16 @@ with torch.no_grad():
     )
     ablated_pred = ablated[0, -1].argmax().item()
 
-# %%
 
 # Stacked panel with shared token labels
 fig, axs, shared_token_ids = plot_attention_flow_panel(
     model,
     tokens,
     device="mps",
-    position_names=[i.item() for i in tokens],
+    position_names=[tokenizer.decode(i) for i in tokens],
     answer=str(answer_token),
     fwd_hooks=fwd_hooks,
-    heads_list=([0], [1]),
+    heads_list=([0, 1, 2, 3, 4, 5, 6, 7], [0], [1], [2], [3], [4], [5], [6], [7]),
     threshold=0.05,
-    figsize=(21, 12)
+    figsize=(21, 100)
 )
