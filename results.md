@@ -1,12 +1,12 @@
 # Priority 0 Experiments — Results Walkthrough
 
-Three experiments were implemented and run to strengthen the paper's core claims. All scripts are in [experiments/](file:///workspace/sae-binding/experiments/) with outputs in [experiments/results/](file:///workspace/sae-binding/experiments/results/).
+Three experiments were implemented and run to strengthen the paper's core claims. All scripts are in [experiments/](experiments/) with outputs in [experiments/results/](experiments/results/).
 
 ---
 
 ## Experiment 1: Combinatorial Geometry Analysis
 
-**Script**: [exp1_geometry_analysis.py](file:///workspace/sae-binding/experiments/exp1_geometry_analysis.py)
+**Script**: [exp1_geometry_analysis.py](experiments/exp1_geometry_analysis.py)
 
 **Goal**: Show the geometric structure of isolated vs composed representations to explain *why* SAEs fail.
 
@@ -22,17 +22,15 @@ Three experiments were implemented and run to strengthen the paper's core claims
 > [!IMPORTANT]
 > The composed (E1,T) vectors have the **largest intra-inter gap** (0.615) and very high intra-class cosine (0.904). This means each (E1,T) pair forms a tight directional cluster — but there are **1000 such clusters** (100 entities × 10 relations) packed into 256 dimensions. The sheer number of overlapping clusters explains why TopK SAEs, which look for a small set of discrete on/off features, cannot decompose this structured continuum.
 
-````carousel
 ![Cosine Distributions](experiments/results/cosine_distributions.png)
-<!-- slide -->
+
 ![PCA Projections](experiments/results/pca_comparison.png)
-````
 
 ---
 
 ## Experiment 2: QK/OV Weight Matrix Analysis
 
-**Script**: [exp2_weight_analysis.py](file:///workspace/sae-binding/experiments/exp2_weight_analysis.py)
+**Script**: [exp2_weight_analysis.py](experiments/exp2_weight_analysis.py)
 
 **Goal**: Prove the retrieval circuit is structurally hardcoded in the weights (not just an activation-level correlation).
 
@@ -54,7 +52,7 @@ The top QK eigenvectors have a principal angle overlap of 0.985 with the empiric
 
 ## Experiment 3: Mean Ablation (Necessity Proof)
 
-**Script**: [exp3_ablation.py](file:///workspace/sae-binding/experiments/exp3_ablation.py)
+**Script**: [exp3_ablation.py](experiments/exp3_ablation.py)
 
 **Goal**: Prove both L0H0 and L0H1 are *necessary* (not just sufficient) for the retrieval circuit.
 
@@ -87,7 +85,7 @@ Remaining experiments from the Priority 1+ roadmap:
 
 ## Experiment 4: Gemma Linear Probes
 
-**Script**: [exp4_gemma_linear_probes.py](file:///workspace/sae-binding/exp4_gemma_linear_probes.py)
+**Script**: [exp4_gemma_linear_probes.py](exp4_gemma_linear_probes.py)
 
 **Goal**: Reproduce the representational factorization scaling observation (Table 1) in a real pretrained language model (Gemma-2-2b).
 
@@ -101,7 +99,7 @@ Remaining experiments from the Priority 1+ roadmap:
 
 ## Experiment 5: Gemma Causal Patching & QK Matching
 
-**Scripts**: [exp5_gemma_causal_patching_plot.py](file:///workspace/sae-binding/experiments/exp5_gemma_causal_patching_plot.py) & [exp6_gemma_qk_matching.py](file:///workspace/sae-binding/experiments/exp6_gemma_qk_matching.py)
+**Scripts**: [exp5_gemma_causal_patching_plot.py](experiments/exp5_gemma_causal_patching_plot.py) & [exp6_gemma_qk_matching.py](experiments/exp6_gemma_qk_matching.py)
 
 **Goal**: Prove that Gemma-2-2B functionally uses the factorized representations identified in Experiment 4 via the same staged retrieval mechanism found in the toy model.
 
@@ -111,17 +109,15 @@ Remaining experiments from the Priority 1+ roadmap:
 
 These two tests confirm that the retrieval circuit wiring is identical between our toy setup and bleeding-edge LLMs.
 
-````carousel
 ![Gemma Causal Patching Heatmap](experiments/results/gemma/gemma_causal_patching.png)
-<!-- slide -->
+
 ![Gemma QK Matching Distribution](experiments/results/gemma/gemma_qk_matching.png)
-````
 
 ---
 
 ## Experiment 6: Gemma Scope SAE Recovery (The "Dark Matter" Proof)
 
-**Script**: [exp7_gemma_sae_recovery.py](file:///workspace/sae-binding/experiments/exp7_gemma_sae_recovery.py)
+**Script**: [exp7_gemma_sae_recovery.py](experiments/exp7_gemma_sae_recovery.py)
 
 **Goal**: Prove that the "Dark Matter" feature recovery failure mode extends to state-of-the-art SAEs trained on large pretrained models. Specifically, we evaluate whether Google's `gemma-scope-2b-pt-res` (L22, width 16k SAE) can faithfully reconstruct the composed address subspace. 
 
