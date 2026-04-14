@@ -22,7 +22,7 @@ The following scripts execute against the 2L2H toy transformer (`sebastianhoenig
     *   **Purpose:** Proves mathematically why SAEs fail on composed relations. Computes the intra-class (0.904) vs inter-class (0.289) cosine similarities, proving the representation forms 1,000 dense, non-orthogonal topological clusters that cannot be extracted by L1-sparse methods.
 2. **Weight Matrix Decomposition (The "Circuit")**
     *   **Script:** `python experiments/exp2_weight_analysis.py`
-    *   **Purpose:** Preempts "ephemeral activation" critiques by tracing the retrieval routing directly to the network weights. Generates the SVD eigenspectrum proving the exact $W_Q W_K^T$ mechanism is hardcoded with massive overlap to the $L_0H_0$ address subspace (principal angle = 0.985).
+    *   **Purpose:** Preempts "ephemeral activation" critiques by tracing the retrieval routing directly to the network weights. Generates the SVD eigenspectrum proving the exact $W_Q W_K^T$ mechanism is hardcoded with massive overlap to the $L_0H_0$ address subspace (top principal-angle cosine $\sigma_1 = 0.985$, mean overlap $\bar\sigma = 0.63$, subspace alignment score $\Sigma\sigma_i^2/k = 0.54$ vs. random baseline $\approx 0.08$).
 3. **Causal Necessity Ablation**
     *   **Script:** `python experiments/exp3_ablation.py`
     *   **Purpose:** Upgrades causal patching (sufficiency) to strict ablation (necessity). Zeroes out the $L_0H_0$ (Address) and $L_0H_1$ (Payload) representations during forward passes, proving that both are individually essential to retrieval (accuracy zeroes out if either is ablated).
@@ -39,6 +39,6 @@ The following scripts scale the identical tests up to open-weight LLMs, ensuring
 6. **Gemma Q-K Matching Analysis**
     *   **Script:** `python experiments/exp6_gemma_qk_matching.py`
     *   **Purpose:** Performs exact query-key dot product tests across the context on `L22H4` to mathematically prove it pattern-matches in real LLMs exactly as tested in `exp2/exp3`.
-7. **Gemma-Scope SAE Recovery Evaluataion (Dark Matter)**
+7. **Gemma-Scope SAE Recovery Evaluation (Dark Matter)**
     *   **Script:** `python experiments/exp7_gemma_sae_recovery.py`
     *   **Purpose:** Employs the `sae_lens` library to inject Gemma activations through the official `gemma-scope-2b-pt-res` dict layer mapping. Evaluates target discriminability from $X_{recon}$, proving that even Google's native dictionary erases the compositional axes relative to standalone vectors.
