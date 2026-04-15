@@ -98,7 +98,7 @@ def get_data(model, sae, layer=22, max_prompts=300):
 
 def train_probe(X, labels, target_name, data_type):
     unique, counts = np.unique(labels, return_counts=True)
-    valid_classes = unique[counts >= 3]
+    valid_classes = unique[counts >= 5]
     mask = np.isin(labels, valid_classes)
     
     X_f = X[mask]

@@ -300,9 +300,8 @@ def main():
     print("\n=== Mean Pairwise Cosine Similarity ===")
     bar_results = []
     for name, vecs in [
-        ("E1 (L0H0)", data["hookz_h0"]),
-        ("T (L0H0)", data["hookz_h0"]),
-        ("E2 (L0H1)", data["hookz_h1"]),
+        ("L0H0 (E1 + T)", data["hookz_h0"]),
+        ("L0H1 (E2)", data["hookz_h1"]),
         ("(E1,T) composed\n(resid_post)", data["resid_post"]),
     ]:
         mean_cos, std_cos = compute_mean_pairwise_cosine(vecs)

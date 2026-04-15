@@ -23,7 +23,6 @@ OUTPUT_DIR = "experiments/results/gemma"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 N_LAYERS = 26
-os.environ["HF_TOKEN"] = "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"
 
 def load_model(device):
     print("Loading pretrained Gemma-2-2b...")

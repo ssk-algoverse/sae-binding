@@ -113,7 +113,7 @@ Core experiments (Priority 0 toy proofs + Gemma-2-2B replication) are complete. 
 **Goal**: Prove that Gemma-2-2B functionally uses the factorized representations identified in Experiment 4 via the same staged retrieval mechanism found in the toy model.
 
 **Results**:
-- **Causal Patching:** By running path patching over all 208 attention heads (26 layers × 8 heads), we isolated **L22H4** as the primary "retrieval head" responsible for routing information based on the address subspace. Patching this single head flips the model's prediction entirely.
+- **Causal Patching:** By running path patching over all 208 attention heads (26 layers × 8 heads), we find that **L22H4** shows the largest single-head causal effect on the output logit, making it the dominant routing contributor for the address subspace.
 - **QK Matching:** We computed the pre-softmax dot product $Q^T K$ for L22H4 between the query token and all fact separator commas in the context. The head explicitly pattern-matches on the correct fact's comma position, reliably separating it from distractor commas (see plot below).
 
 These two tests confirm that the retrieval circuit wiring is identical between our toy setup and bleeding-edge LLMs.
@@ -133,9 +133,9 @@ These two tests confirm that the retrieval circuit wiring is identical between o
 **Goal**: Prove that the "Dark Matter" feature recovery failure mode extends to state-of-the-art SAEs trained on large pretrained models. Specifically, we evaluate whether Google's `gemma-scope-2b-pt-res` (L22, width 16k SAE) can faithfully reconstruct the composed address subspace. 
 
 **Results**:
-We trained Ridge Classifiers on the comma activations at Layer 22 to separate the raw `resid_post` from the `SAE_reconstructed_resid_post`.
-1. **Payload Variable ($E_2$)**: Decodablity remains highly preserved through the SAE reconstruction hurdle.
-2. **Composed Address ($E_1, T$)**: Accuracy suffers a catastrophic 5x drop (15.5% $\rightarrow$ 3.1%) across the 999 zero-shot classes, demonstrating that the SAE completely wiped the compositional directions from the geometry. 
+We trained Ridge Classifiers (filtering to classes with ≥5 examples; 3-fold stratified CV) on the comma activations at Layer 22 to separate the raw `resid_post` from the `SAE_reconstructed_resid_post`.
+1. **Payload Variable ($E_2$)**: Decodability remains highly preserved through the SAE reconstruction hurdle.
+2. **Composed Address ($E_1, T$)**: Accuracy degrades ~5x (15.5% $\rightarrow$ 3.1%) across hundreds of zero-shot (E1, T) classes. The raw baseline is itself modest — linear decoding of the full composed address at the comma is a hard multi-class task — so the cleaner read is the *ratio* of degradation: $E_2$ survives SAE reconstruction, while (E1, T) collapses toward chance relative to what linear probes could extract pre-SAE.
 
 This guarantees the paper's central thesis: composed structural representations form overlapping density manifolds that strongly resist recovery via standard sparse topological decomposition.
 

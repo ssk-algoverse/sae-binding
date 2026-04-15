@@ -15,7 +15,6 @@ import seaborn as sns
 from tqdm import tqdm
 from transformer_lens import HookedTransformer
 
-os.environ["HF_TOKEN"] = "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"
 
 def main():
     os.makedirs("experiments/results/gemma", exist_ok=True)
@@ -49,6 +48,8 @@ def main():
         with torch.no_grad():
             _, cache = model.run_with_cache(tokens.unsqueeze(0), names_filter=[f"blocks.{layer}.attn.hook_k", f"blocks.{layer}.attn.hook_q"])
             
+            # Gemma-2-2b uses GQA: 8 query heads share 4 KV heads (2 Q heads per KV head).
+            # TransformerLens stores hook_k unexpanded, so Q-head h maps to KV-head h // 2.
             K = cache[f"blocks.{layer}.attn.hook_k"][0, :, head // 2, :] # [seq, d_head]
             Q = cache[f"blocks.{layer}.attn.hook_q"][0, -1, head, :] # [d_head], query is the last token
             

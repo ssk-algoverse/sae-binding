@@ -113,21 +113,6 @@ def compute_mean_activations(model, dataset, device, max_examples=1000):
 
 
 # ─── Ablation hooks ────────────────────────────────────────────────────────
-def make_mean_ablation_hook(heads_to_ablate, mean_activations, sep_token_id=SEP):
-    """Create a hook that replaces specified head outputs with their mean at SEP positions."""
-    def hook_fn(act, hook):
-        # act shape: [batch, seq, heads, d_head]
-        act = act.clone()
-        # Find SEP positions - we need to access the input tokens
-        # Since we can't access tokens directly, we ablate at ALL positions
-        # for targeted heads. This is a stronger ablation.
-        for head_idx in heads_to_ablate:
-            act[:, :, head_idx, :] = mean_activations[head_idx]
-        return act
-
-    return hook_fn
-
-
 def make_sep_only_ablation_hook(heads_to_ablate, mean_activations, input_tokens, sep_token_id=SEP):
     """Create a hook that replaces specified head outputs with their mean ONLY at SEP positions."""
     sep_positions = (input_tokens == sep_token_id).nonzero(as_tuple=False)[:, -1].tolist()
