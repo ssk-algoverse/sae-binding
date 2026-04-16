@@ -165,6 +165,26 @@ def analyze_ov_circuit(model, device):
     return
 
 
+def compute_random_baseline(d_model=D_MODEL, k=20, n_trials=2000, seed=0):
+    """Monte Carlo baseline: expected principal-angle cosines between two
+    uniformly random k-dim subspaces in R^{d_model}. Used as the null for
+    the subspace alignment probe below."""
+    rng = np.random.default_rng(seed)
+    mean_sigma, align = [], []
+    for _ in range(n_trials):
+        A, _ = np.linalg.qr(rng.standard_normal((d_model, k)))
+        B, _ = np.linalg.qr(rng.standard_normal((d_model, k)))
+        s = np.linalg.svd(A.T @ B, compute_uv=False)
+        mean_sigma.append(s.mean())
+        align.append((s ** 2).sum() / k)
+    print(f"\n  Random baseline (d={d_model}, k={k}, n_trials={n_trials}):")
+    print(f"    Mean overlap sigma_bar:     {np.mean(mean_sigma):.4f} "
+          f"(std {np.std(mean_sigma):.4f})")
+    print(f"    Alignment score sum(s^2)/k: {np.mean(align):.4f} "
+          f"(std {np.std(align):.4f})  [analytical k/d = {k / d_model:.4f}]")
+    return float(np.mean(mean_sigma)), float(np.mean(align))
+
+
 def probe_subspace_alignment(model, device):
     """Check whether QK top eigenvectors align with the address subspace
     by computing overlap with actual class-mean address directions."""
@@ -293,6 +313,9 @@ def main():
 
     # Subspace alignment
     probe_subspace_alignment(model, device)
+
+    # Random-subspace null baseline for the alignment metrics above
+    compute_random_baseline(d_model=D_MODEL, k=20)
 
     # Plots
     plot_eigenvalue_spectrum(model, OUTPUT_DIR / "qk_eigenvalue_spectrum.png")

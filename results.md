@@ -26,7 +26,7 @@ Three experiments were implemented and run to strengthen the paper's core claims
 <br>
 ![PCA Projections](experiments/results/pca_comparison.png)
 
-***Explanation of the Plots:** The top distribution plot illustrates the massive rightward shift in intra-class cosine similarities for composed representations, mathematically charting how tightly packed the relational structures become. The bottom PCA plot visualizes this packing geometrically, revealing how individual independent variables ($E_1$, $T$, $E_2$) collapse into an intricately overlapping grid of states when bound together into a single representation.*
+***Explanation of the Plots:** The top distribution plot illustrates the massive rightward shift in intra-class cosine similarities for composed representations, mathematically charting how tightly packed the relational structures become. The bottom PCA plot visualises this packing geometrically across three panels: isolated $E_1$ and $T$ at `L0H0` (columns 1–2) versus the composed $(E_1 + T)$ at `resid_post` (column 3, coloured by $E_1$), showing how the independent address variables collapse into an intricately overlapping grid of states once bound together.*
 
 ---
 
@@ -47,8 +47,8 @@ Three experiments were implemented and run to strengthen the paper's core claims
 ### Subspace Alignment
 We compare the top-20 QK eigenvectors to the top-20 PCA directions of the empirical address subspace via the singular values $\sigma_i$ of the cross-Gram `(QK_eigvecs.T @ addr_vecs)` (cosines of principal angles, bounded in $[0,1]$):
 - **Top singular value: 0.985** (L1H0) — the leading principal-angle direction is almost perfectly aligned
-- **Mean overlap $\bar\sigma$: 0.63** (L1H0: 0.6301, L1H1: 0.6343; random baseline ~0.08) — the full top-20 subspaces share substantial directional structure
-- **Subspace alignment score $\frac{1}{k}\Sigma\sigma_i^2$: 0.54** (L1H0: 0.5394, L1H1: 0.5365) — well above the random-baseline floor, confirming the QK matrix is structurally tuned to the address subspace
+- **Mean overlap $\bar\sigma$: 0.63** (L1H0: 0.6301, L1H1: 0.6343; random baseline ~0.24 from Monte Carlo over Haar-random 20-dim subspaces in $\mathbb{R}^{256}$) — the full top-20 subspaces share substantial directional structure
+- **Subspace alignment score $\frac{1}{k}\Sigma\sigma_i^2$: 0.54** (L1H0: 0.5394, L1H1: 0.5365; random baseline ~0.08, matching the analytical $k/d = 20/256$) — well above the random-baseline floor, confirming the QK matrix is structurally tuned to the address subspace
 
 ![QK Eigenvalue Spectrum](experiments/results/qk_eigenvalue_spectrum.png)
 
