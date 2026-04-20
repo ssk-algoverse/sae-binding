@@ -43,6 +43,20 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "results"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
+# ─── Reproducibility ────────────────────────────────────────────────────────
+import random as _random
+
+SEED = 0
+
+
+def set_seed(seed):
+    _random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
 def build_model():
     d_head = D_MODEL // HEADS
     cfg = HookedTransformerConfig(
@@ -185,70 +199,123 @@ def compute_random_baseline(d_model=D_MODEL, k=20, n_trials=2000, seed=0):
     return float(np.mean(mean_sigma)), float(np.mean(align))
 
 
-def probe_subspace_alignment(model, device):
-    """Check whether QK top eigenvectors align with the address subspace
-    by computing overlap with actual class-mean address directions."""
-    print("\n" + "=" * 60)
-    print("Subspace Alignment: QK eigvecs vs Address Directions")
-    print("=" * 60)
+def collect_address_vectors(model, device, max_examples=2000, min_class_size=3):
+    """Collect L0 resid_post vectors at SEP positions, grouped by (e1, t).
 
-    # Collect address vectors from L0H0 at SEP positions
+    Returns (flat_vecs, flat_keys, class_means, kept_keys) where flat_vecs/flat_keys
+    are aligned arrays for permutation testing and class_means is the per-key mean.
+    """
     dataset_hf = load_dataset("sojup/entity_binding", split="test")
     dataset = EntityBindingDataset(dataset_hf.to_pandas())
 
-    address_vecs = {}  # (e1, t) -> list of vecs
-    n = min(len(dataset), 2000)
-
+    address_vecs = {}
+    n = min(len(dataset), max_examples)
     for idx in tqdm(range(n), desc="Collecting address vectors"):
-        tokens, label = dataset[idx]
+        tokens, _ = dataset[idx]
         tokens = tokens.to(device)
         facts = extract_fact_metadata(tokens)
         if not facts:
             continue
-
         _, cache = model.run_with_cache(tokens.unsqueeze(0))
-        resid_post = cache["blocks.0.hook_resid_post"]  # composed address goes here
-
+        resid_post = cache["blocks.0.hook_resid_post"]
         for fact in facts:
             key = (fact["e1"], fact["t"])
             vec = resid_post[0, fact["sep_pos"], :].cpu()
-            if key not in address_vecs:
-                address_vecs[key] = []
-            address_vecs[key].append(vec)
+            address_vecs.setdefault(key, []).append(vec)
 
-    # Compute class-mean address directions
-    class_means = []
+    flat_vecs, flat_keys, class_means, kept_keys = [], [], [], []
     for key in sorted(address_vecs.keys()):
-        if len(address_vecs[key]) >= 3:
-            mean_vec = torch.stack(address_vecs[key]).mean(dim=0)
-            class_means.append(mean_vec)
-    class_means = torch.stack(class_means)  # [n_classes, d_model]
+        if len(address_vecs[key]) >= min_class_size:
+            stacked = torch.stack(address_vecs[key])
+            class_means.append(stacked.mean(dim=0))
+            kept_keys.append(key)
+            for v in stacked:
+                flat_vecs.append(v)
+                flat_keys.append(key)
+    flat_vecs = torch.stack(flat_vecs)
+    class_means = torch.stack(class_means)
+    return flat_vecs, flat_keys, class_means, kept_keys
+
+
+def alignment_metrics(class_means, qk_eigvecs, top_k=20):
+    """Top-k principal-angle cosines between class-mean PCA top-k and qk_eigvecs."""
+    centered = class_means - class_means.mean(dim=0)
+    _, _, Vh = torch.linalg.svd(centered.float(), full_matrices=False)
+    top_addr = Vh[:top_k, :].T  # [d_model, k]
+    overlap = torch.linalg.svdvals(qk_eigvecs.T @ top_addr)
+    mean_overlap = overlap.mean().item()
+    align_score = (overlap ** 2).sum().item() / top_k
+    sigma1 = overlap.max().item()
+    return sigma1, mean_overlap, align_score
+
+
+def permutation_null(flat_vecs, flat_keys, qk_eigvecs, top_k=20, n_trials=200, seed=0,
+                     min_class_size=3):
+    """Shuffle (e1, t) labels among collected vectors, recompute class means and PCA,
+    measure alignment with QK eigvecs. Tests whether the alignment is driven by the
+    real class structure or by the marginal residual-stream geometry."""
+    rng = np.random.default_rng(seed)
+    n = len(flat_keys)
+    keys_arr = np.array(flat_keys)  # shape [n, 2]
+    sigma1s, means, aligns = [], [], []
+    for _ in range(n_trials):
+        perm = rng.permutation(n)
+        shuffled_keys = [tuple(keys_arr[i]) for i in perm]
+        # Re-bucket
+        buckets = {}
+        for v_idx, k in enumerate(shuffled_keys):
+            buckets.setdefault(k, []).append(v_idx)
+        cm = []
+        for k, idxs in buckets.items():
+            if len(idxs) >= min_class_size:
+                cm.append(flat_vecs[idxs].mean(dim=0))
+        if len(cm) < top_k:
+            continue
+        cm = torch.stack(cm)
+        s1, mo, al = alignment_metrics(cm, qk_eigvecs, top_k=top_k)
+        sigma1s.append(s1); means.append(mo); aligns.append(al)
+    return np.array(sigma1s), np.array(means), np.array(aligns)
+
+
+def _summary(arr):
+    if arr.size == 0:
+        return "n/a"
+    lo, hi = np.quantile(arr, [0.025, 0.975])
+    return f"{arr.mean():.4f} [CI95 {lo:.4f}, {hi:.4f}, n={arr.size}]"
+
+
+def probe_subspace_alignment(model, device):
+    """Real alignment of QK top eigvecs with the (E1,T) address subspace,
+    plus a label-permutation null and the original Gaussian random-subspace baseline."""
+    print("\n" + "=" * 60)
+    print("Subspace Alignment: QK eigvecs vs Address Directions")
+    print("=" * 60)
+
+    flat_vecs, flat_keys, class_means, kept_keys = collect_address_vectors(model, device)
     print(f"  Number of (E1,T) class means: {len(class_means)}")
+    print(f"  Total vectors used for permutation null: {len(flat_keys)}")
 
-    # PCA of class means to get address subspace
-    class_means_centered = class_means - class_means.mean(dim=0)
-    U_addr, S_addr, Vh_addr = torch.linalg.svd(class_means_centered.float(), full_matrices=False)
-
-    # Get top-k eigenvectors of QK for L1H0
+    top_k = 20
     for head_idx in range(HEADS):
         W_Q = model.W_Q[1, head_idx].detach()
         W_K = model.W_K[1, head_idx].detach()
         QK = W_Q @ W_K.T
         QK_sym = (QK + QK.T) / 2
+        _, eigenvectors = torch.linalg.eigh(QK_sym.float().cpu())
+        top_eigvecs = eigenvectors[:, -top_k:]  # [d_model, k]
 
-        eigenvalues, eigenvectors = torch.linalg.eigh(QK_sym.float().cpu())
-        # Top eigenvectors (largest eigenvalues)
-        top_eigvecs = eigenvectors[:, -20:]  # [d_model, 20]
+        sigma1, mean_overlap, align_score = alignment_metrics(class_means, top_eigvecs, top_k=top_k)
+        print(f"\n  L1H{head_idx} QK top-{top_k} eigvecs vs address subspace top-{top_k}:")
+        print(f"    REAL  σ1 (top princ-angle cosine): {sigma1:.4f}")
+        print(f"    REAL  mean overlap σ̄:             {mean_overlap:.4f}")
+        print(f"    REAL  alignment Σσ²/k:             {align_score:.4f}")
 
-        # Address subspace top-k directions
-        top_addr = Vh_addr[:20, :].T  # [d_model, 20]
-
-        # Compute subspace overlap (principal angles)
-        overlap = torch.linalg.svdvals(top_eigvecs.T @ top_addr)
-        print(f"\n  L1H{head_idx} QK top-20 eigvecs vs address subspace top-20:")
-        print(f"    Singular values of overlap: {overlap[:10].detach().numpy()}")
-        print(f"    Mean overlap: {overlap.mean().item():.4f}")
-        print(f"    Subspace alignment score: {(overlap**2).sum().item() / min(20, 20):.4f}")
+        null_s1, null_mo, null_al = permutation_null(
+            flat_vecs, flat_keys, top_eigvecs, top_k=top_k, n_trials=200, seed=SEED + head_idx,
+        )
+        print(f"    NULL  σ1 (label permutation):      {_summary(null_s1)}")
+        print(f"    NULL  σ̄ (label permutation):       {_summary(null_mo)}")
+        print(f"    NULL  alignment (label perm):      {_summary(null_al)}")
 
 
 def plot_eigenvalue_spectrum(model, filename):
@@ -301,8 +368,9 @@ def plot_ov_singular_values(model, filename):
 
 
 def main():
+    set_seed(SEED)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
+    print(f"Device: {device} | seed={SEED}")
 
     print("Loading model...")
     model = load_model(device)
@@ -311,10 +379,13 @@ def main():
     analyze_qk_circuit(model, device)
     analyze_ov_circuit(model, device)
 
-    # Subspace alignment
+    # Subspace alignment + label-permutation null (the meaningful baseline)
     probe_subspace_alignment(model, device)
 
-    # Random-subspace null baseline for the alignment metrics above
+    # Random-subspace null baseline (kept for backward compat; weak null — only
+    # controls for dimensionality, not for training-induced co-shaping of
+    # weights and activations).
+    print("\n— Gaussian random-subspace baseline (weak null, dimensionality only) —")
     compute_random_baseline(d_model=D_MODEL, k=20)
 
     # Plots

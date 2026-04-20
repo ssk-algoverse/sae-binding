@@ -1,5 +1,22 @@
 """
-Plot pre-computed causal patching results for Gemma
+Plot pre-computed causal patching results for Gemma.
+
+⚠️  NOTICE — KEEP IN SYNC WITH PathPatchingGemma.ipynb
+─────────────────────────────────────────────────────────
+This script only renders `gemma/per_head_logit_diffs.pt`. That tensor is
+produced by `PathPatchingGemma.ipynb` (project root). The notebook is the
+source of truth for:
+
+  • which prompts the head-selection ran on (held-out split logic),
+  • how `per_head_logit_diffs` is computed (mean ablation? noise injection?
+    metric: logit-diff vs KL?),
+  • the layer/head grid being scanned.
+
+If you change anything here that depends on those choices (e.g. the layer
+range, the metric, the held-out vs full set assumption), update the
+notebook in lock-step and re-export `per_head_logit_diffs.pt`. Likewise,
+edits to the notebook that change the tensor's shape or semantics MUST
+land alongside an update to this plotter.
 """
 import os
 import torch

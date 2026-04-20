@@ -47,6 +47,30 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "results"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
+# ─── Reproducibility ────────────────────────────────────────────────────────
+import random as _random
+
+SEED = 0
+
+
+def set_seed(seed):
+    _random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def bootstrap_ci(arr, n_boot=1000, seed=0, ci=0.95):
+    rng = np.random.default_rng(seed)
+    arr = np.asarray(arr).ravel()
+    if arr.size == 0:
+        return 0.0, 0.0, 0.0
+    boot_means = np.array([rng.choice(arr, size=arr.size, replace=True).mean() for _ in range(n_boot)])
+    lo, hi = np.quantile(boot_means, [(1 - ci) / 2, 1 - (1 - ci) / 2])
+    return float(arr.mean()), float(lo), float(hi)
+
+
 # ─── Model ──────────────────────────────────────────────────────────────────
 def build_model():
     d_head = D_MODEL // HEADS
@@ -203,14 +227,19 @@ def compute_pairwise_cosine_stats(vecs, labels, n_sample_pairs=50000):
 
 
 def compute_mean_pairwise_cosine(vecs):
-    """Compute mean pairwise cosine similarity of all vectors (sampled)."""
+    """Compute mean pairwise cosine similarity of all vectors (sampled).
+
+    Returns: (mean, std, off_diag_array) — off_diag_array is exposed so
+    callers can bootstrap a confidence interval on the mean.
+    """
     vecs_norm = vecs / vecs.norm(dim=-1, keepdim=True).clamp(min=1e-8)
     n = min(len(vecs), 5000)
     subset = vecs_norm[:n]
     cos_matrix = subset @ subset.T
     # Exclude diagonal
     mask = ~torch.eye(n, dtype=torch.bool)
-    return cos_matrix[mask].mean().item(), cos_matrix[mask].std().item()
+    off_diag = cos_matrix[mask].cpu().numpy()
+    return float(off_diag.mean()), float(off_diag.std()), off_diag
 
 
 # ─── Plotting ───────────────────────────────────────────────────────────────
@@ -281,8 +310,9 @@ def plot_pca_comparison(data, filename):
 
 # ─── Main ───────────────────────────────────────────────────────────────────
 def main():
+    set_seed(SEED)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Device: {device}")
+    print(f"Device: {device} | seed={SEED}")
 
     print("Loading model...")
     model = load_model(device)
@@ -304,8 +334,9 @@ def main():
         ("L0H1 (E2)", data["hookz_h1"]),
         ("(E1,T) composed\n(resid_post)", data["resid_post"]),
     ]:
-        mean_cos, std_cos = compute_mean_pairwise_cosine(vecs)
-        print(f"  {name:30s} → mean={mean_cos:.4f}  std={std_cos:.4f}")
+        mean_cos, std_cos, off_diag = compute_mean_pairwise_cosine(vecs)
+        m, lo, hi = bootstrap_ci(off_diag, n_boot=1000, seed=SEED)
+        print(f"  {name:30s} → mean={mean_cos:.4f}  std={std_cos:.4f}  CI95=[{lo:.4f}, {hi:.4f}]")
         bar_results.append((name, mean_cos, std_cos))
 
     plot_mean_cosine_bar(bar_results, OUTPUT_DIR / "mean_pairwise_cosine.png")
@@ -321,7 +352,22 @@ def main():
     ]
     for title, vecs, labels in configs:
         intra, inter = compute_pairwise_cosine_stats(vecs, labels)
-        print(f"  {title:45s} → intra μ={intra.mean():.4f}  inter μ={inter.mean():.4f}  gap={intra.mean() - inter.mean():.4f}")
+        intra_m, intra_lo, intra_hi = bootstrap_ci(intra, n_boot=1000, seed=SEED)
+        inter_m, inter_lo, inter_hi = bootstrap_ci(inter, n_boot=1000, seed=SEED + 1)
+        # Bootstrap the gap by paired resampling (independent draws, large n → ~uncorrelated).
+        rng = np.random.default_rng(SEED + 2)
+        intra_arr, inter_arr = np.asarray(intra), np.asarray(inter)
+        gap_boots = np.array([
+            rng.choice(intra_arr, intra_arr.size, replace=True).mean()
+            - rng.choice(inter_arr, inter_arr.size, replace=True).mean()
+            for _ in range(1000)
+        ])
+        gap_lo, gap_hi = np.quantile(gap_boots, [0.025, 0.975])
+        print(
+            f"  {title:45s} → intra μ={intra_m:.4f} [{intra_lo:.4f},{intra_hi:.4f}]  "
+            f"inter μ={inter_m:.4f} [{inter_lo:.4f},{inter_hi:.4f}]  "
+            f"gap={intra_m - inter_m:.4f} [{gap_lo:.4f},{gap_hi:.4f}]  (n_intra={intra_arr.size}, n_inter={inter_arr.size})"
+        )
         dist_results.append((title, intra, inter))
 
     plot_cosine_distributions(dist_results, OUTPUT_DIR / "cosine_distributions.png")
