@@ -33,7 +33,7 @@ from tqdm import tqdm
 from transformer_lens import HookedTransformer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _gemma_config import get_preset, require, model_arch, kv_head_for
+from _gemma_config import get_preset, require, model_arch, kv_head_for, load_model
 
 
 SEED = 0
@@ -67,11 +67,7 @@ def main():
     target_head = preset["target_head"]
     random_head_layer_range = preset["random_head_layer_range"]
 
-    print(f"Loading pretrained {preset['model_name']}...")
-    model = HookedTransformer.from_pretrained(
-        preset["model_name"], center_unembed=True, center_writing_weights=True, fold_ln=True, device=device
-    )
-    model.eval()
+    model = load_model(preset, device)
     arch = model_arch(model)
     n_q_heads = arch["n_q_heads"]
     group_size = arch["group_size"]

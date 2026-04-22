@@ -36,7 +36,7 @@ from transformers import logging as hf_logging
 hf_logging.set_verbosity_error()
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _gemma_config import get_preset, require, resolve_sae_configs
+from _gemma_config import get_preset, require, resolve_sae_configs, load_model
 
 SEED = 0
 MAX_PROMPTS = 1500
@@ -167,11 +167,7 @@ def main():
     layer = preset["target_layer"]
     configs = resolve_sae_configs(preset, layer=layer)
 
-    print(f"Loading pretrained {preset['model_name']}...")
-    model = HookedTransformer.from_pretrained(
-        preset["model_name"], center_unembed=True, center_writing_weights=True, fold_ln=True, device=device
-    )
-    model.eval()
+    model = load_model(preset, device)
     print(f"  preset={preset['_name']}  target_layer=L{layer}  n_configs={len(configs)}")
 
     raw_acts, metadata = collect_raw_activations(model, layer=layer, max_prompts=MAX_PROMPTS)

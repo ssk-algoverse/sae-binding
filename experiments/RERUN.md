@@ -71,6 +71,10 @@ The summary table at the end now includes the three category percentages per con
 
 ## 2 · Gemma experiments (slower — laptop will sweat, cloud GPU recommended)
 
+> **⚠️ FT-checkpoint alignment (now automatic):** the L22H4 circuit was identified by `gemma/pp_toy_dataset.ipynb` on a *finetuned* checkpoint (`gemma/gemma2_ft_toy/checkpoint-900/`, output of `gemma/gemma_toy_ft.ipynb`), not on base `gemma-2-2b`. Earlier versions of exp4/exp6/exp7 silently loaded base weights, so the probes / Q-K / SAE measurements were on a different model than the circuit claim. The shared `experiments/_gemma_config.py::load_model` helper now loads the FT checkpoint when present, so all four scripts (the notebook + exp4/6/7) use the same weights.
+>
+> If the FT checkpoint directory is missing, `load_model` prints a warning and falls back to base. To regenerate it, run `gemma/gemma_toy_ft.ipynb` end-to-end (writes to `./gemma2_ft_toy/checkpoint-900/`; move into `gemma/` so it's discoverable from project-root invocations).
+
 ### exp4 — Linear probes (re-run required)
 **Changed:** held-out split at the **prompt level** (30 % held out), 5-seed bootstrap over different splits, plotting now shows `mean ± std` band per layer. Also bumped `MAX_PROMPTS=300` (from 150) so the holdout has enough class coverage.
 
@@ -86,13 +90,15 @@ Outputs:
 Compute estimate: ~20–40 min on M-series MPS, ~5 min on a single A100/L4. The bottleneck is the per-prompt forward pass with 26-layer caching; the probe training itself is fast.
 
 ### exp5 — Causal patching plot (NO re-run from script alone)
-**Changed:** added a prominent NOTICE comment that the script is plot-only and depends on `gemma/per_head_logit_diffs.pt` produced by `PathPatchingGemma.ipynb`.
+**Changed:** updated NOTICE comment to point at the correct source notebook (`gemma/pp_toy_dataset.ipynb`) and to flag that path patching ran on the FT checkpoint. The old root-level `PathPatchingGemma.ipynb` (base Gemma + prakash boxes dataset) has been **deleted** — it was a stale sibling, not the source of `gemma/per_head_logit_diffs.pt`.
 
-> **⚠️ The actual head-selection logic lives in `PathPatchingGemma.ipynb`.**
-> If you want to address the "exp5 selected L22H4 on the same prompts everything else uses" critique, you need to:
-> 1. Open `PathPatchingGemma.ipynb`.
+> **⚠️ The actual head-selection logic lives in `gemma/pp_toy_dataset.ipynb`.**
+> That notebook loads the FT checkpoint via `AutoModelForCausalLM.from_pretrained("./gemma2_ft_toy/checkpoint-900/")` and wraps it in HookedTransformer with the gemma-2-2b architecture template.
+>
+> If you want to address the "exp5 selected L22H4 on the same prompts everything else uses" critique:
+> 1. Open `gemma/pp_toy_dataset.ipynb`.
 > 2. Apply the same 50/50 prompt-level split that exp6 now uses on `gemma/gemma_pp_dataset.jsonl` (use `seed=0`, take the first half as the *selection* set, second half as held-out).
-> 3. Run path-patching only on the **selection** half. Re-export `gemma/per_head_logit_diffs.pt`.
+> 3. Run path-patching only on the **selection** half. Re-export `gemma/per_head_logit_diffs.pt` (the notebook saves to `e1/per_head_logit_diffs.pt` near line 1452 — copy/symlink into `gemma/` for the plotter to find it).
 > 4. Re-run `python experiments/exp5_gemma_causal_patching_plot.py` to redraw the heatmap.
 > 5. The held-out validation that L22H4 is special is what exp6 now does.
 >
@@ -170,11 +176,11 @@ The Gemma scripts are now parameterised by a single **`GEMMA_PRESET`** env var, 
 
 ### Current presets
 
-| `GEMMA_PRESET` | model | SAE family | status |
-|---|---|---|---|
-| `gemma-2-2b` (default) | gemma-2-2b | Gemma-Scope 1 (L0~72 canonical + L0~22 sparser) | **ready** — target_layer/head filled in |
-| `gemma-3-1b-pt` | gemma-3-1b-pt | Gemma-Scope 2 canonical (placeholder — verify release id) | **needs path-patching** |
-| `gemma-3-4b-pt` | gemma-3-4b-pt | Gemma-Scope 2 canonical (placeholder — verify release id) | **needs path-patching** |
+| `GEMMA_PRESET` | model | FT checkpoint | SAE family | status |
+|---|---|---|---|---|
+| `gemma-2-2b` (default) | gemma-2-2b | `gemma/gemma2_ft_toy/checkpoint-900` | Gemma-Scope 1 (L0~72 canonical + L0~22 sparser) | **ready** — circuit head filled in |
+| `gemma-3-1b-pt` | gemma-3-1b-pt | `None` (FT not yet produced) | Gemma-Scope 2 canonical (placeholder — verify release id) | **needs FT + path-patching** |
+| `gemma-3-4b-pt` | gemma-3-4b-pt | `None` | Gemma-Scope 2 canonical (placeholder — verify release id) | **needs FT + path-patching** |
 
 The Gemma-3 presets have `target_layer / target_head / random_head_layer_range` set to `None`. exp6 and exp7 call `require(preset, ...)` and fail with a clear error until those are filled in.
 
@@ -199,6 +205,7 @@ Output files are now preset-namespaced (e.g. `gemma-3-1b-pt_probe_accuracies_hol
 
 ### What the parameterisation handles automatically
 
+- **Model loading** — `load_model(preset, device)` in `_gemma_config.py` either calls `HookedTransformer.from_pretrained(model_name)` (base) or wraps an FT checkpoint via `hf_model=AutoModelForCausalLM.from_pretrained(ft_checkpoint)`, picking based on whether the `ft_checkpoint` path exists. exp4/6/7 all go through this helper.
 - **`N_LAYERS`** — read from `model.cfg.n_layers` after load. No hardcoded `26`.
 - **GQA group size** — `kv_head_for(q_head, group_size)` uses `group_size = n_q_heads // n_kv_heads` from `model.cfg`. The old Gemma-2-2b-specific `q_head // 2` is gone.
 - **Number of query heads** — read from `model.cfg.n_heads`. Random-head null picks from the full head set per layer.
@@ -206,11 +213,12 @@ Output files are now preset-namespaced (e.g. `gemma-3-1b-pt_probe_accuracies_hol
 
 ### What still needs manual work per new preset
 
-1. **Re-run `PathPatchingGemma.ipynb`** on the new model with the same 50/50 prompt-level split that exp6 uses. Identify the new circuit head `(L*, H*)`.
-2. **Fill in `experiments/_gemma_config.py`**: set `target_layer`, `target_head`, `random_head_layer_range` (something like `(L*-4, L*+4)`) for the preset.
-3. **Re-export `gemma/per_head_logit_diffs.pt`** from the notebook for the exp5 plot. Preset-namespacing the artefact path is a future nice-to-have; today exp5 still hardcodes `gemma/per_head_logit_diffs.pt`, so swap the file when switching presets.
-4. **Verify the Gemma-Scope 2 release id** against Neuronpedia or `sae_lens.toolkit.pretrained_saes_directory`. The placeholder ids in the preset (`gemma-scope-2-1b-pt-res` etc.) are guesses — confirm before running exp7.
-5. **Verify `comma_id` and `period_id`** tokenise to single tokens in the new tokenizer. Gemma 3 uses a different tokenizer; the single-token assumption may break. If it does, exp4/exp6/exp7 all silently collect fewer facts.
+1. **Re-run `gemma/gemma_toy_ft.ipynb`** on the new model to produce a finetuned checkpoint. Save the output directory and update the preset's `ft_checkpoint` field. (Skip if you intentionally want to operate on base weights — leave `ft_checkpoint=None` and accept that the circuit head you identify won't generalise to base.)
+2. **Re-run `gemma/pp_toy_dataset.ipynb`** on the FT checkpoint with the same 50/50 prompt-level split that exp6 uses. Identify the new circuit head `(L*, H*)`.
+3. **Fill in `experiments/_gemma_config.py`**: set `target_layer`, `target_head`, `random_head_layer_range` (something like `(L*-4, L*+4)`) for the preset.
+4. **Re-export `gemma/per_head_logit_diffs.pt`** from the notebook for the exp5 plot. Preset-namespacing the artefact path is a future nice-to-have; today exp5 still hardcodes `gemma/per_head_logit_diffs.pt`, so swap the file when switching presets.
+5. **Verify the Gemma-Scope 2 release id** against Neuronpedia or `sae_lens.toolkit.pretrained_saes_directory`. The placeholder ids in the preset (`gemma-scope-2-1b-pt-res` etc.) are guesses — confirm before running exp7.
+6. **Verify `comma_id` and `period_id`** tokenise to single tokens in the new tokenizer. Gemma 3 uses a different tokenizer; the single-token assumption may break. If it does, exp4/exp6/exp7 all silently collect fewer facts.
 
 ### Cost estimate
 

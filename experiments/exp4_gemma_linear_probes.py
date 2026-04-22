@@ -25,7 +25,7 @@ from transformers import logging as hf_logging
 hf_logging.set_verbosity_error()
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _gemma_config import get_preset, model_arch
+from _gemma_config import get_preset, model_arch, load_model
 
 OUTPUT_DIR = "experiments/results/gemma"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -42,13 +42,6 @@ def set_seed(seed):
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
-
-def load_model(device, preset):
-    model_name = preset["model_name"]
-    print(f"Loading pretrained {model_name}...")
-    model = HookedTransformer.from_pretrained(model_name, center_unembed=True, center_writing_weights=True, fold_ln=True, device=device)
-    model.eval()
-    return model
 
 def extract_facts_from_tokens(tokens_np, comma_id, period_id):
     """
@@ -215,7 +208,7 @@ def main():
     set_seed(SEED)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     preset = get_preset()
-    model = load_model(device, preset)
+    model = load_model(preset, device)
     arch = model_arch(model)
     n_layers = arch["n_layers"]
     print(f"  preset={preset['_name']}  n_layers={n_layers}  n_q_heads={arch['n_q_heads']}  n_kv_heads={arch['n_kv_heads']}")

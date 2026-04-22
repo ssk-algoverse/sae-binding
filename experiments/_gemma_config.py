@@ -12,7 +12,17 @@ here — they are read from ``model.cfg`` after the HookedTransformer load.
 That way the config only needs to know the user-meaningful knobs:
 
   • model_name             — argument to HookedTransformer.from_pretrained
-  • target_layer / head    — identified by PathPatchingGemma.ipynb; must be
+                             (also the architecture template when loading FT weights)
+  • ft_checkpoint          — optional path to a finetuned HF checkpoint
+                             (e.g. ``gemma/gemma2_ft_toy/checkpoint-900``). When set
+                             *and the path exists*, weights are swapped into the
+                             ``model_name`` template via ``hf_model=...``. This is
+                             the load used by ``gemma/pp_toy_dataset.ipynb`` to
+                             identify the L22H4 circuit, so probe / Q-K / SAE
+                             experiments match the circuit-identification model.
+                             If the path is missing we fall back to base with a
+                             warning.
+  • target_layer / head    — identified by ``gemma/pp_toy_dataset.ipynb``; must be
                              filled in after running path patching on a new
                              model
   • random_head_layer_range — window for exp6's random-head null
@@ -22,12 +32,18 @@ That way the config only needs to know the user-meaningful knobs:
 """
 from __future__ import annotations
 import os
+import warnings
 
 PRESETS = {
     # ── Legacy preset (what the paper currently reports) ────────────────────
     "gemma-2-2b": {
         "model_name": "gemma-2-2b",
-        # Circuit head identified by PathPatchingGemma.ipynb
+        # FT checkpoint produced by gemma/gemma_toy_ft.ipynb. This is the model
+        # gemma/pp_toy_dataset.ipynb uses for path patching, so downstream
+        # experiments should match. Falls back to base Gemma-2-2b if the path
+        # doesn't exist (prints a warning).
+        "ft_checkpoint": "gemma/gemma2_ft_toy/checkpoint-900",
+        # Circuit head identified by gemma/pp_toy_dataset.ipynb
         "target_layer": 22,
         "target_head": 4,
         # Deep half of the network, minus the target head itself
@@ -45,14 +61,15 @@ PRESETS = {
 
     # ── Gemma 3 presets ─────────────────────────────────────────────────────
     # NOTE: target_layer/target_head MUST be filled in after re-running
-    # PathPatchingGemma.ipynb on the corresponding model. Until then, exp6
-    # will raise a clear error.
+    # path patching (gemma/pp_toy_dataset.ipynb) on the corresponding model.
+    # Until then, exp6 will raise a clear error.
     #
     # SAE release IDs: verify against https://www.neuronpedia.org/gemma-scope-2
     # or ``python -c "from sae_lens.toolkit.pretrained_saes_directory import
     # get_pretrained_saes_directory as g; print([k for k in g() if 'gemma-scope-2' in k])"``.
     "gemma-3-1b-pt": {
         "model_name": "gemma-3-1b-pt",
+        "ft_checkpoint": None,   # no FT yet — add once gemma_toy_ft is re-run on Gemma-3
         "target_layer": None,
         "target_head": None,
         "random_head_layer_range": None,
@@ -65,6 +82,7 @@ PRESETS = {
     },
     "gemma-3-4b-pt": {
         "model_name": "gemma-3-4b-pt",
+        "ft_checkpoint": None,
         "target_layer": None,
         "target_head": None,
         "random_head_layer_range": None,
@@ -128,3 +146,49 @@ def resolve_sae_configs(preset: dict, layer: int) -> list[tuple[str, str, str]]:
     for label, release, template in preset["sae_configs"]:
         out.append((label, release, template.format(layer=layer)))
     return out
+
+
+def load_model(preset: dict, device, **hooked_kwargs):
+    """Load a HookedTransformer for the given preset.
+
+    If the preset has ``ft_checkpoint`` pointing to an existing local directory,
+    we load HF weights from there and swap them into a ``model_name`` HookedTransformer
+    via ``hf_model=...`` (same pattern as gemma/pp_toy_dataset.ipynb). Otherwise we
+    call ``HookedTransformer.from_pretrained(model_name)`` on the base weights.
+
+    Extra keyword args are passed through to ``from_pretrained``. Sensible
+    defaults (``center_unembed=True, center_writing_weights=True, fold_ln=True``)
+    are applied if the caller doesn't override them.
+    """
+    from transformer_lens import HookedTransformer
+
+    defaults = dict(
+        center_unembed=True,
+        center_writing_weights=True,
+        fold_ln=True,
+        device=device,
+    )
+    defaults.update(hooked_kwargs)
+
+    model_name = preset["model_name"]
+    ft_ckpt = preset.get("ft_checkpoint")
+
+    if ft_ckpt and os.path.isdir(ft_ckpt):
+        from transformers import AutoModelForCausalLM
+        print(f"Loading FT checkpoint from {ft_ckpt} into {model_name} architecture...")
+        hf_model = AutoModelForCausalLM.from_pretrained(ft_ckpt)
+        model = HookedTransformer.from_pretrained(model_name, hf_model=hf_model, **defaults)
+    else:
+        if ft_ckpt:
+            warnings.warn(
+                f"Preset '{preset['_name']}' declares ft_checkpoint='{ft_ckpt}' but "
+                f"that directory doesn't exist. Falling back to base {model_name}. "
+                f"NOTE: the circuit claims (L{preset.get('target_layer')}H"
+                f"{preset.get('target_head')}) were identified on the FT model; "
+                f"results on base weights may not reproduce them."
+            )
+        print(f"Loading pretrained {model_name} (base weights)...")
+        model = HookedTransformer.from_pretrained(model_name, **defaults)
+
+    model.eval()
+    return model
