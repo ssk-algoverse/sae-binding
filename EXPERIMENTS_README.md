@@ -212,7 +212,7 @@ Update `paper.tex` with:
 - [x] **exp1** — replace point estimates `0.904 / 0.289` with bootstrapped CIs
 - [x] **exp2** — report `σ1 / σ̄ / align` as `REAL vs PERMUTATION-NULL CI`; demote Gaussian baseline to footnote
 - [x] **exp3** — add confusion-matrix story and head-swap result
-- [x] **exp1b** — add paragraph on toy SAE empirical probe (raw / recon / z / rank-matched)
+- [x] **exp1b** — add footnote on rank-matched control (PCA/RandProj preserve $(E_1, T)$, SAE recon degrades it — isolates loss to sparsity, not dimensionality)
 - [ ] **exp4** — report **held-out** numbers (with std bands), not CV numbers
 - [ ] **exp5** — note that path patching ran on FT model (not base)
 - [ ] **exp6** — report `correct vs random-head` and `correct vs random-position` gaps (not just distractor)
