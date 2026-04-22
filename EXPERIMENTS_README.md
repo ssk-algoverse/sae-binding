@@ -199,6 +199,8 @@ Checkboxes represent the state **before** re-running with the hardened scripts. 
 
 Prerequisites before any Gemma experiment:
 - [ ] Run `gemma/gemma_toy_ft.ipynb` end-to-end → checkpoint at `gemma/gemma2_ft_toy/checkpoint-900/`
+- [ ] Run `gemma/gemma_toy_eval.ipynb` on the FT checkpoint → confirm retrieval accuracy >90% before proceeding
+- [ ] Run `gemma/pp_toy_dataset.ipynb` on the FT checkpoint (if `gemma/per_head_logit_diffs.pt` is stale) → re-exports `per_head_logit_diffs.pt` used by exp5
 
 Then:
 - [ ] **exp4** — re-run for held-out probe numbers; ~30–40 min
@@ -284,6 +286,10 @@ Output files are preset-namespaced so multiple runs coexist in `experiments/resu
   ```
 - [ ] Run the notebook end-to-end. Checkpoint lands at `gemma/{OUTPUT_DIR}/checkpoint-*/` (e.g. `gemma/gemma3_1b_ft_toy/checkpoint-900/`).
 - [ ] In `experiments/_gemma_config.py`, set `ft_checkpoint` for the matching preset to `gemma/gemma3_1b_ft_toy/checkpoint-900` (adjust step count to match actual final checkpoint).
+
+**Step 1b — Sanity-check the FT model**
+
+- [ ] Open `gemma/gemma_toy_eval.ipynb`. Update the model-load cell to point at the new FT checkpoint. Run inference on the eval set and confirm retrieval accuracy is high (>90%) before proceeding — if accuracy is low, the FT failed and path-patching results will be meaningless.
 
 **Step 2 — Identify the circuit head**
 
