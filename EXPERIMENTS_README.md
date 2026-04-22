@@ -209,10 +209,10 @@ Then:
 ### Paper updates (after re-runs)
 
 Update `paper.tex` with:
-- [ ] **exp1** — replace point estimates `0.904 / 0.289` with bootstrapped CIs
-- [ ] **exp2** — report `σ1 / σ̄ / align` as `REAL vs PERMUTATION-NULL CI`; demote Gaussian baseline to footnote
-- [ ] **exp3** — add confusion-matrix story and head-swap result
-- [ ] **exp1b** — add paragraph on toy SAE empirical probe (raw / recon / z / rank-matched)
+- [x] **exp1** — replace point estimates `0.904 / 0.289` with bootstrapped CIs
+- [x] **exp2** — report `σ1 / σ̄ / align` as `REAL vs PERMUTATION-NULL CI`; demote Gaussian baseline to footnote
+- [x] **exp3** — add confusion-matrix story and head-swap result
+- [x] **exp1b** — add paragraph on toy SAE empirical probe (raw / recon / z / rank-matched)
 - [ ] **exp4** — report **held-out** numbers (with std bands), not CV numbers
 - [ ] **exp5** — note that path patching ran on FT model (not base)
 - [ ] **exp6** — report `correct vs random-head` and `correct vs random-position` gaps (not just distractor)
@@ -268,11 +268,45 @@ Output files are preset-namespaced so multiple runs coexist in `experiments/resu
 
 ### Checklist for a new Gemma 3 preset
 
-- [ ] Run `gemma/gemma_toy_ft.ipynb` on the new model — update `output_dir` and the preset's `ft_checkpoint` field
-- [ ] Run `gemma/pp_toy_dataset.ipynb` on the FT checkpoint — identify `(L*, H*)`, copy/save `per_head_logit_diffs.pt` to `gemma/`
-- [ ] Fill in `target_layer`, `target_head`, `random_head_layer_range` in `experiments/_gemma_config.py`
-- [ ] Verify Gemma-Scope 2 `sae_lens` release id against Neuronpedia or `sae_lens.toolkit.pretrained_saes_directory`
-- [ ] Verify `comma_id` / `period_id` still tokenise to single tokens in the Gemma 3 tokenizer (silent failure if not)
+**Step 1 — Fine-tune**
+
+- [ ] Open `gemma/gemma_toy_ft.ipynb` and edit the **CONFIG cell (cell 2)** — the only cell you need to touch:
+  ```python
+  # Gemma 3-1b:
+  TL_MODEL_NAME = "gemma-3-1b-pt"
+  HF_MODEL_ID   = "google/gemma-3-1b-pt"
+  OUTPUT_DIR    = "./gemma3_1b_ft_toy"
+
+  # Gemma 3-4b:
+  TL_MODEL_NAME = "gemma-3-4b-pt"
+  HF_MODEL_ID   = "google/gemma-3-4b-pt"
+  OUTPUT_DIR    = "./gemma3_4b_ft_toy"
+  ```
+- [ ] Run the notebook end-to-end. Checkpoint lands at `gemma/{OUTPUT_DIR}/checkpoint-*/` (e.g. `gemma/gemma3_1b_ft_toy/checkpoint-900/`).
+- [ ] In `experiments/_gemma_config.py`, set `ft_checkpoint` for the matching preset to `gemma/gemma3_1b_ft_toy/checkpoint-900` (adjust step count to match actual final checkpoint).
+
+**Step 2 — Identify the circuit head**
+
+- [ ] Open `gemma/pp_toy_dataset.ipynb`. Update the model-load cell to use the FT checkpoint (same `TL_MODEL_NAME` + `hf_model=AutoModelForCausalLM.from_pretrained(ft_checkpoint)` pattern as the Gemma-2-2b run). Run path-patching on the **first 50%** of the dataset (`seed=0`). Identify `(L*, H*)` = the head with the largest per-head logit diff.
+- [ ] Save `per_head_logit_diffs.pt` to `gemma/` (the notebook saves near the bottom — copy if needed).
+
+**Step 3 — Fill in config**
+
+- [ ] In `experiments/_gemma_config.py`, fill in `target_layer`, `target_head`, `random_head_layer_range` for the preset.
+- [ ] Verify Gemma-Scope 2 `sae_lens` release IDs against Neuronpedia or:
+  ```bash
+  python -c "from sae_lens.toolkit.pretrained_saes_directory import get_pretrained_saes_directory as g; print([k for k in g() if 'gemma-scope-2' in k])"
+  ```
+- [ ] Verify `comma_id` / `period_id` still tokenise to single tokens in the Gemma 3 tokenizer — run `model.to_tokens(",")` and `model.to_tokens(".")` and confirm each returns a single token (silent failure if not).
+
+**Step 4 — Run experiments**
+
+```bash
+GEMMA_PRESET=gemma-3-1b-pt python experiments/exp4_gemma_linear_probes.py
+GEMMA_PRESET=gemma-3-1b-pt python experiments/exp5_gemma_causal_patching_plot.py
+GEMMA_PRESET=gemma-3-1b-pt python experiments/exp6_gemma_qk_matching.py
+GEMMA_PRESET=gemma-3-1b-pt python experiments/exp7_gemma_sae_recovery.py
+```
 
 ### Cost estimate
 
