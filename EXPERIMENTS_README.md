@@ -190,10 +190,10 @@ Checkboxes represent the state **before** re-running with the hardened scripts. 
 
 ### Toy (fast — minutes on CPU/MPS)
 
-- [ ] **exp1** — re-run to get bootstrap CIs on geometry claims
-- [ ] **exp1b** — new file, must run; proves SAE failure empirically on toy
-- [ ] **exp2** — re-run to get permutation-null comparison
-- [ ] **exp3** — re-run to get confusion-matrix breakdown + head-swap result
+- [x] **exp1** — re-run to get bootstrap CIs on geometry claims
+- [x] **exp1b** — new file, must run; proves SAE failure empirically on toy
+- [x] **exp2** — re-run to get permutation-null comparison
+- [x] **exp3** — re-run to get confusion-matrix breakdown + head-swap result
 
 ### Gemma (slow — GPU recommended)
 
