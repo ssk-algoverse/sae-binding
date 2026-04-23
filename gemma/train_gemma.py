@@ -42,13 +42,12 @@ def get_subset(text_examples, model, start_idx, end_idx):
     labels = []
     for rec in text_examples[start_idx: end_idx]:
         subset.append(model.to_tokens(rec["input"], prepend_bos=False).squeeze())
-        labels.append(model.to_tokens(rec["label"], prepend_bos=False).squeeze().item())
-    subset = torch.stack(subset, dim=0)
+        labels.append(model.to_tokens(rec["label"], prepend_bos=False).flatten().tolist())
     return subset, labels
 
 def get_text_trainset(model, dataset, labels):
     train_dataset_text = []
-    for idx in range(dataset.shape[0]):
+    for idx in range(len(dataset)):
         ex = dataset[idx]
         label = labels[idx]
         ex_text = model.to_string(ex)
@@ -71,19 +70,28 @@ class FixedDataset(Dataset):
                 "labels": labels,
             })
 
-        lens_inp = {len(r["input_ids"]) for r in self.recs}
-        lens_lab = {len(r["labels"]) for r in self.recs}
-        assert len(lens_inp) == 1 and lens_inp == lens_lab, f"Lengths vary: {lens_inp=} {lens_lab=}"
-        self.seq_len = next(iter(lens_inp))
-
     def __len__(self): return len(self.recs)
     def __getitem__(self, i): return self.recs[i]
 
-def no_pad_collator(batch):
-    input_ids = torch.tensor([ex["input_ids"] for ex in batch], dtype=torch.long)
-    labels    = torch.tensor([ex["labels"]    for ex in batch], dtype=torch.long)
-    attention_mask = torch.ones_like(input_ids)
-    return {"input_ids": input_ids, "labels": labels, "attention_mask": attention_mask}
+def dynamic_collator(batch):
+    max_len = max(len(ex["input_ids"]) for ex in batch)
+    input_ids = []
+    labels = []
+    attention_mask = []
+    for ex in batch:
+        pad_len = max_len - len(ex["input_ids"])
+        inp = ex["input_ids"] + [0] * pad_len
+        lab = ex["labels"] + [-100] * pad_len
+        mask = [1] * len(ex["input_ids"]) + [0] * pad_len
+        input_ids.append(inp)
+        labels.append(lab)
+        attention_mask.append(mask)
+        
+    return {
+        "input_ids": torch.tensor(input_ids, dtype=torch.long),
+        "labels": torch.tensor(labels, dtype=torch.long),
+        "attention_mask": torch.tensor(attention_mask, dtype=torch.long)
+    }
 
 class PrinterCallback(TrainerCallback):
     def on_log(self, args, state, control, logs=None, **kwargs):
@@ -148,7 +156,8 @@ def main():
         save_strategy="epoch",
         logging_steps=10,          # More frequent logs
         logging_first_step=True,   # Log the very first step
-        report_to="none",
+        report_to="wandb" if os.environ.get("WANDB_PROJECT") else "none",
+        run_name=os.environ.get("WANDB_RUN_NAME"),
         log_level="info",          # Surface internal status
     )
 
@@ -158,7 +167,7 @@ def main():
         train_dataset=train_ds,
         eval_dataset=val_ds,
         processing_class=tok,
-        data_collator=no_pad_collator,
+        data_collator=dynamic_collator,
         callbacks=[PrinterCallback()],
     )
 
