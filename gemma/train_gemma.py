@@ -154,6 +154,7 @@ def main():
         fp16=not torch.cuda.is_bf16_supported(),
         gradient_checkpointing=True,
         save_strategy="epoch",
+        save_only_model=True,
         logging_steps=10,          # More frequent logs
         logging_first_step=True,   # Log the very first step
         report_to="wandb" if os.environ.get("WANDB_PROJECT") else "none",
