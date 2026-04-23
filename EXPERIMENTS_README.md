@@ -17,7 +17,7 @@ pip install torch transformer_lens sae_lens scikit-learn datasets seaborn matplo
 | Asset | Size | Source |
 |---|---|---|
 | Gemma-2-2b weights | ~5 GB | HuggingFace, auto-downloaded by `transformer_lens` |
-| Gemma-2-2b FT checkpoint | ~5 GB | Run `gemma/gemma_toy_ft.ipynb` locally |
+| Gemma-2-2b FT checkpoint | ~5 GB | Run `gemma/train_gemma.py` locally |
 | Gemma-Scope SAE width_16k canonical | ~280 MB | `sae_lens` (auto-downloaded) |
 | Gemma-Scope SAE width_16k l0_22 | ~280 MB | `sae_lens` (auto-downloaded) |
 
@@ -93,7 +93,7 @@ Expected interpretation: ablating H0 inflates `wrong_E2_in_prompt`; ablating H1 
 
 ### Priority 2 — Gemma-2-2b Replication
 
-> **⚠️ FT-checkpoint alignment:** L22H4 was identified on a *finetuned* Gemma-2-2b (`gemma/gemma2_ft_toy/checkpoint-900/`, output of `gemma/gemma_toy_ft.ipynb`), not on base weights. `load_model` in `_gemma_config.py` auto-loads the FT checkpoint if present. If missing, it warns and falls back to base — results may not reproduce the circuit claim. Regenerate with `gemma/gemma_toy_ft.ipynb` (writes to `./gemma2_ft_toy/`; ensure it lands at `gemma/gemma2_ft_toy/` relative to the project root).
+> **⚠️ FT-checkpoint alignment:** L22H4 was identified on a *finetuned* Gemma-2-2b (`gemma/gemma2_ft_toy/checkpoint-900/`, output of `gemma/train_gemma.py`), not on base weights. `load_model` in `_gemma_config.py` auto-loads the FT checkpoint if present. If missing, it warns and falls back to base — results may not reproduce the circuit claim. Regenerate with `gemma/train_gemma.py` (writes to `./gemma2_ft_toy/`; ensure it lands at `gemma/gemma2_ft_toy/` relative to the project root).
 
 ---
 
@@ -198,7 +198,7 @@ Checkboxes represent the state **before** re-running with the hardened scripts. 
 ### Gemma (slow — GPU recommended)
 
 Prerequisites before any Gemma experiment:
-- [ ] Run `gemma/gemma_toy_ft.ipynb` end-to-end → checkpoint at `gemma/gemma2_ft_toy/checkpoint-900/`
+- [ ] Run `gemma/train_gemma.py` end-to-end → checkpoint at `gemma/gemma2_ft_toy/checkpoint-900/`
 - [ ] Run `gemma/gemma_toy_eval.ipynb` on the FT checkpoint → confirm retrieval accuracy >90% before proceeding
 - [ ] Run `gemma/pp_toy_dataset.ipynb` on the FT checkpoint (if `gemma/per_head_logit_diffs.pt` is stale) → re-exports `per_head_logit_diffs.pt` used by exp5
 
@@ -225,7 +225,7 @@ Update `paper.tex` with:
 ## Suggested Run Order (budget-constrained)
 
 1. `exp1`, `exp2`, `exp3`, `exp1b` — toy, ~10 min total. Biggest evidence delta per hour.
-2. Regenerate FT checkpoint (`gemma/gemma_toy_ft.ipynb`).
+2. Regenerate FT checkpoint (`gemma/train_gemma.py`).
 3. `exp6` — ~15 min. Held-out + null controls is the highest-leverage single Gemma change.
 4. `exp4` — ~30 min. Proper held-out probe numbers.
 5. `exp7` — ~45 min. Most likely to change the "dark matter" headline framing.
@@ -272,19 +272,26 @@ Output files are preset-namespaced so multiple runs coexist in `experiments/resu
 
 **Step 1 — Fine-tune**
 
-- [ ] Open `gemma/gemma_toy_ft.ipynb` and edit the **CONFIG cell (cell 2)** — the only cell you need to touch:
-  ```python
-  # Gemma 3-1b:
-  TL_MODEL_NAME = "gemma-3-1b-pt"
-  HF_MODEL_ID   = "google/gemma-3-1b-pt"
-  OUTPUT_DIR    = "./gemma3_1b_ft_toy"
+- [ ] Note that we have trained two models using the `train_gemma.py` script. You can reproduce them or train new models by setting the appropriate environment variables:
+  ```bash
+  # Gemma-2-2b (baseline):
+  HF_TOKEN="..." \
+  WANDB_API_KEY="..." \
+  WANDB_PROJECT="sae-binding-ft" \
+  WANDB_RUN_NAME="gemma-2-2b-baseline" \
+  .venv/bin/python -u gemma/train_gemma.py
 
-  # Gemma 3-4b:
-  TL_MODEL_NAME = "gemma-3-4b-pt"
-  HF_MODEL_ID   = "google/gemma-3-4b-pt"
-  OUTPUT_DIR    = "./gemma3_4b_ft_toy"
+  # Gemma-3-1b:
+  HF_TOKEN="..." \
+  WANDB_API_KEY="..." \
+  WANDB_PROJECT="sae-binding-ft" \
+  WANDB_RUN_NAME="gemma-3-1b-toy-ft" \
+  TL_MODEL_NAME="gemma-3-1b-pt" \
+  HF_MODEL_ID="google/gemma-3-1b-pt" \
+  OUTPUT_DIR="./gemma3_1b_ft_toy" \
+  .venv/bin/python -u gemma/train_gemma.py
   ```
-- [ ] Run the notebook end-to-end. Checkpoint lands at `gemma/{OUTPUT_DIR}/checkpoint-*/` (e.g. `gemma/gemma3_1b_ft_toy/checkpoint-900/`).
+- [ ] Checkpoint lands at `gemma/{OUTPUT_DIR}/checkpoint-*/` (e.g. `gemma/gemma3_1b_ft_toy/checkpoint-900/`).
 - [ ] In `experiments/_gemma_config.py`, set `ft_checkpoint` for the matching preset to `gemma/gemma3_1b_ft_toy/checkpoint-900` (adjust step count to match actual final checkpoint).
 
 **Step 1b — Sanity-check the FT model**
