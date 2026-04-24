@@ -21,7 +21,7 @@ pip install torch transformer_lens sae_lens scikit-learn datasets seaborn matplo
 | Gemma-Scope SAE width_16k canonical | ~280 MB | `sae_lens` (auto-downloaded) |
 | Gemma-Scope SAE width_16k l0_22 | ~280 MB | `sae_lens` (auto-downloaded) |
 
-> **Model loading:** all Gemma scripts (`exp4`–`exp7`) go through `experiments/_gemma_config.py::load_model`, which automatically loads the FT checkpoint (`gemma/gemma2_ft_toy/checkpoint-900/`) if the directory exists, or falls back to base Gemma-2-2b with a warning. The circuit head (L22H4) was identified on the FT model by `gemma/pp_toy_dataset.ipynb`, so the FT checkpoint is required for results to be consistent with the circuit claim.
+> **Model loading:** all Gemma scripts (`exp4`–`exp7`) go through `experiments/_gemma_config.py::load_model`, which automatically loads the FT checkpoint (`gemma/gemma2_ft_toy/checkpoint-900/`) if the directory exists, or falls back to base Gemma-2-2b with a warning. The circuit head (L22H4) was identified on the FT model by `gemma/pp_toy_dataset.py`, so the FT checkpoint is required for results to be consistent with the circuit claim.
 
 ---
 
@@ -125,15 +125,15 @@ Compute: ~20–40 min on M-series MPS, ~5 min on A100/L4.
 
 **Claim:** L22H4 is the primary routing head in Gemma-2-2b (on the FT model + toy dataset).
 
-This script only renders `gemma/per_head_logit_diffs.pt`. That tensor is produced by **`gemma/pp_toy_dataset.ipynb`** — the source of truth for which model, dataset, and metric were used. The old root-level `PathPatchingGemma.ipynb` (base Gemma + prakash boxes dataset) has been removed; it was not the source of the L22H4 claim.
+This script only renders `gemma/per_head_logit_diffs.pt`. That tensor is produced by **`gemma/pp_toy_dataset.py`** — the source of truth for which model, dataset, and metric were used. The old root-level `PathPatchingGemma.py` (base Gemma + prakash boxes dataset) has been removed; it was not the source of the L22H4 claim.
 
 **To regenerate `per_head_logit_diffs.pt`** (required before calling the plotter after a model change):
-1. Open `gemma/pp_toy_dataset.ipynb`.
+1. Open `gemma/pp_toy_dataset.py`.
 2. Apply the same 50/50 prompt-level split (`seed=0`, first half = selection, second half = held-out) as exp6.
-3. Run path-patching on the **selection half only**. Re-export to `gemma/per_head_logit_diffs.pt` (the notebook saves near the bottom — copy to `gemma/` if needed).
+3. Run path-patching on the **selection half only**. Re-export to `gemma/per_head_logit_diffs.pt` (the script saves near the bottom — copy to `gemma/` if needed).
 4. Re-run `python experiments/exp5_gemma_causal_patching_plot.py`.
 
-**Keep the notebook and `exp5_gemma_causal_patching_plot.py` in lock-step.** Any change to layer range, metric, or prompt subset in the notebook must land alongside an update to this plotter.
+**Keep the script and `exp5_gemma_causal_patching_plot.py` in lock-step.** Any change to layer range, metric, or prompt subset in the script must land alongside an update to this plotter.
 
 ---
 
@@ -144,7 +144,7 @@ This script only renders `gemma/per_head_logit_diffs.pt`. That tensor is produce
 **Claim:** L22H4's Q-K dot products are discriminatively higher at the correct comma (following the target fact) than at distractors — ruling out "any head does this" and "head scores all commas equally".
 
 **What changed:**
-- Evaluates only on the held-out 50% of `gemma/gemma_pp_dataset.jsonl` (seed=0 split; first 50% is reserved for path-patching head selection in exp5/notebook).
+- Evaluates only on the held-out 50% of `gemma/gemma_pp_dataset.jsonl` (seed=0 split; first 50% is reserved for path-patching head selection in exp5/script).
 - Three null distributions: distractor commas (same head, other commas), random-position (same head, random comma), random-head (random L,H excluding L22H4, correct comma).
 - GQA handled correctly: `kv_head_for(q_head, group_size)` using `group_size` from `model.cfg`.
 - Model loaded via `load_model(preset, device)`.
@@ -199,12 +199,12 @@ Checkboxes represent the state **before** re-running with the hardened scripts. 
 
 Prerequisites before any Gemma experiment:
 - [ ] Run `gemma/train_gemma.py` end-to-end → checkpoint at `gemma/gemma2_ft_toy/checkpoint-900/`
-- [ ] Run `gemma/gemma_toy_eval.ipynb` on the FT checkpoint → confirm retrieval accuracy >90% before proceeding
-- [ ] Run `gemma/pp_toy_dataset.ipynb` on the FT checkpoint (if `gemma/per_head_logit_diffs.pt` is stale) → re-exports `per_head_logit_diffs.pt` used by exp5
+- [ ] Run `gemma/gemma_toy_eval.py` on the FT checkpoint → confirm retrieval accuracy >90% before proceeding
+- [ ] Run `gemma/pp_toy_dataset.py` on the FT checkpoint (if `gemma/per_head_logit_diffs.pt` is stale) → re-exports `per_head_logit_diffs.pt` used by exp5
 
 Then:
 - [ ] **exp4** — re-run for held-out probe numbers; ~30–40 min
-- [ ] **exp5 / notebook** — re-run `gemma/pp_toy_dataset.ipynb` with 50/50 held-out split; re-export `gemma/per_head_logit_diffs.pt`; re-run plotter
+- [ ] **exp5 / script** — re-run `gemma/pp_toy_dataset.py` with 50/50 held-out split; re-export `gemma/per_head_logit_diffs.pt`; re-run plotter
 - [ ] **exp6** — re-run for held-out + 4-way null; ~5–15 min
 - [ ] **exp7** — re-run for z-probe + rank-matched controls; ~45–60 min for 2 configs
 
@@ -229,7 +229,7 @@ Update `paper.tex` with:
 3. `exp6` — ~15 min. Held-out + null controls is the highest-leverage single Gemma change.
 4. `exp4` — ~30 min. Proper held-out probe numbers.
 5. `exp7` — ~45 min. Most likely to change the "dark matter" headline framing.
-6. **Optional:** re-run `gemma/pp_toy_dataset.ipynb` with the 50/50 split → `exp5` redraw. Closes the "head selected on same data it's evaluated on" critique.
+6. **Optional:** re-run `gemma/pp_toy_dataset.py` with the 50/50 split → `exp5` redraw. Closes the "head selected on same data it's evaluated on" critique.
 
 ---
 
@@ -275,10 +275,13 @@ Output files are preset-namespaced so multiple runs coexist in `experiments/resu
 - [ ] Note that we have trained two models using the `train_gemma.py` script. You can reproduce them or train new models by setting the appropriate environment variables:
   ```bash
   # Gemma-2-2b (baseline):
+  # NOTE: We use BATCH_SIZE=2 and GRAD_ACCUM=4 (effective batch size 8) to prevent OOM crashes on larger models.
   HF_TOKEN="..." \
   WANDB_API_KEY="..." \
   WANDB_PROJECT="sae-binding-ft" \
   WANDB_RUN_NAME="gemma-2-2b-baseline" \
+  BATCH_SIZE="2" \
+  GRAD_ACCUM="4" \
   .venv/bin/python -u gemma/train_gemma.py
 
   # Gemma-3-1b:
@@ -289,19 +292,36 @@ Output files are preset-namespaced so multiple runs coexist in `experiments/resu
   TL_MODEL_NAME="gemma-3-1b-pt" \
   HF_MODEL_ID="google/gemma-3-1b-pt" \
   OUTPUT_DIR="./gemma3_1b_ft_toy" \
+  BATCH_SIZE="8" \
+  GRAD_ACCUM="1" \
   .venv/bin/python -u gemma/train_gemma.py
   ```
 - [ ] Checkpoint lands at `gemma/{OUTPUT_DIR}/checkpoint-*/` (e.g. `gemma/gemma3_1b_ft_toy/checkpoint-900/`).
 - [ ] In `experiments/_gemma_config.py`, set `ft_checkpoint` for the matching preset to `gemma/gemma3_1b_ft_toy/checkpoint-900` (adjust step count to match actual final checkpoint).
 
+**Step 1a — Upload Checkpoint to Hugging Face (Optional)**
+
+If you want to save your checkpoints to the Hugging Face Hub, you can use the `hf` CLI tool (already installed in `.venv` via `huggingface_hub`):
+
+```bash
+# Log in with your API token (needs Write permissions)
+.venv/bin/hf auth login
+
+# Upload Gemma 3 1B model
+.venv/bin/hf upload <YOUR_HF_USERNAME>/gemma-3-1b-toy-ft ./gemma3_1b_ft_toy .
+
+# Upload Gemma 2 2B baseline
+.venv/bin/hf upload <YOUR_HF_USERNAME>/gemma-2-2b-baseline ./gemma2_ft_toy .
+```
+
 **Step 1b — Sanity-check the FT model**
 
-- [ ] Open `gemma/gemma_toy_eval.ipynb`. Update the model-load cell to point at the new FT checkpoint. Run inference on the eval set and confirm retrieval accuracy is high (>90%) before proceeding — if accuracy is low, the FT failed and path-patching results will be meaningless.
+- [ ] Open `gemma/gemma_toy_eval.py`. Update the model-load lines to point at the new FT checkpoint. Run the script to perform inference on the eval set and confirm retrieval accuracy is high (>90%) before proceeding — if accuracy is low, the FT failed and path-patching results will be meaningless.
 
 **Step 2 — Identify the circuit head**
 
-- [ ] Open `gemma/pp_toy_dataset.ipynb`. Update the model-load cell to use the FT checkpoint (same `TL_MODEL_NAME` + `hf_model=AutoModelForCausalLM.from_pretrained(ft_checkpoint)` pattern as the Gemma-2-2b run). Run path-patching on the **first 50%** of the dataset (`seed=0`). Identify `(L*, H*)` = the head with the largest per-head logit diff.
-- [ ] Save `per_head_logit_diffs.pt` to `gemma/` (the notebook saves near the bottom — copy if needed).
+- [ ] Open `gemma/pp_toy_dataset.py`. Update the model-load lines to use the FT checkpoint (same `TL_MODEL_NAME` + `hf_model=AutoModelForCausalLM.from_pretrained(ft_checkpoint)` pattern as the Gemma-2-2b run). Run the script to perform path-patching on the **first 50%** of the dataset (`seed=0`). Identify `(L*, H*)` = the head with the largest per-head logit diff.
+- [ ] Save `per_head_logit_diffs.pt` to `gemma/` (the script saves near the bottom — copy if needed).
 
 **Step 3 — Fill in config**
 
@@ -326,7 +346,7 @@ GEMMA_PRESET=gemma-3-1b-pt python experiments/exp7_gemma_sae_recovery.py
 | Task | Time |
 |---|---|
 | FT training on Gemma-3-1b | ~1–3 h GPU |
-| Path-patching notebook (Gemma-3-1b) | ~1–2 h GPU |
+| Path-patching script (Gemma-3-1b) | ~1–2 h GPU |
 | exp4 + exp6 + exp7 on Gemma-3-1b | ~1 h GPU total |
 
 ### Why do this

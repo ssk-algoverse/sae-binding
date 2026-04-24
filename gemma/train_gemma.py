@@ -22,6 +22,8 @@ TL_MODEL_NAME = os.environ.get("TL_MODEL_NAME", "gemma-2-2b")
 HF_MODEL_ID   = os.environ.get("HF_MODEL_ID", "google/gemma-2-2b")
 OUTPUT_DIR    = os.environ.get("OUTPUT_DIR", "./gemma2_ft_toy")
 DATASET_PATH  = os.environ.get("DATASET_PATH", "gemma/gemma_toy_dataset_train.jsonl")
+BATCH_SIZE    = int(os.environ.get("BATCH_SIZE", 8))
+GRAD_ACCUM    = int(os.environ.get("GRAD_ACCUM", 1))
 
 # For Gemma 3 migration, you would set:
 # TL_MODEL_NAME="gemma-3-1b-pt"
@@ -144,8 +146,9 @@ def main():
 
     args = TrainingArguments(
         output_dir=OUTPUT_DIR,
-        per_device_train_batch_size=8,
-        per_device_eval_batch_size=8,
+        per_device_train_batch_size=BATCH_SIZE,
+        per_device_eval_batch_size=BATCH_SIZE,
+        gradient_accumulation_steps=GRAD_ACCUM,
         num_train_epochs=1,
         learning_rate=2e-5,
         warmup_ratio=0.03,
@@ -174,6 +177,9 @@ def main():
 
     print("Starting training...")
     trainer.train()
+    print("Saving final model...")
+    trainer.save_model(OUTPUT_DIR)
+    tok.save_pretrained(OUTPUT_DIR)
     print(f"Training complete. Checkpoint saved to {OUTPUT_DIR}")
 
 if __name__ == "__main__":

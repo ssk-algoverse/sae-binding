@@ -42,7 +42,7 @@ PRESETS = {
         # gemma/pp_toy_dataset.ipynb uses for path patching, so downstream
         # experiments should match. Falls back to base Gemma-2-2b if the path
         # doesn't exist (prints a warning).
-        "ft_checkpoint": "gemma/gemma2_ft_toy/checkpoint-900",
+        "ft_checkpoint": "gemma2_ft_toy/checkpoint-900",
         # Circuit head identified by gemma/pp_toy_dataset.ipynb
         "target_layer": 22,
         "target_head": 4,
@@ -69,10 +69,10 @@ PRESETS = {
     # get_pretrained_saes_directory as g; print([k for k in g() if 'gemma-scope-2' in k])"``.
     "gemma-3-1b-pt": {
         "model_name": "gemma-3-1b-pt",
-        "ft_checkpoint": None,   # no FT yet — add once gemma_toy_ft is re-run on Gemma-3
-        "target_layer": None,
-        "target_head": None,
-        "random_head_layer_range": None,
+        "ft_checkpoint": "gemma3_1b_ft_toy/checkpoint-900",
+        "target_layer": None,   # fill in after running gemma/pp_toy_dataset.py
+        "target_head": None,    # fill in after running gemma/pp_toy_dataset.py
+        "random_head_layer_range": None,  # fill in after target_layer is known
         "sae_configs": [
             # Placeholder — confirm exact release/id against Neuronpedia.
             ("gs2 / width_16k / canonical",
@@ -162,11 +162,13 @@ def load_model(preset: dict, device, **hooked_kwargs):
     """
     from transformer_lens import HookedTransformer
 
+    import torch as _torch
     defaults = dict(
         center_unembed=True,
         center_writing_weights=True,
         fold_ln=True,
         device=device,
+        dtype=_torch.bfloat16,
     )
     defaults.update(hooked_kwargs)
 
@@ -174,10 +176,46 @@ def load_model(preset: dict, device, **hooked_kwargs):
     ft_ckpt = preset.get("ft_checkpoint")
 
     if ft_ckpt and os.path.isdir(ft_ckpt):
-        from transformers import AutoModelForCausalLM
+        import gc
+        import torch as _torch
+        from transformers import AutoModelForCausalLM, AutoConfig, AutoTokenizer
         print(f"Loading FT checkpoint from {ft_ckpt} into {model_name} architecture...")
-        hf_model = AutoModelForCausalLM.from_pretrained(ft_ckpt)
-        model = HookedTransformer.from_pretrained(model_name, hf_model=hf_model, **defaults)
+        # Load in bfloat16 + meta-tensor init; then move to device so the HF copy
+        # doesn't sit on CPU while HookedTransformer builds its own copy.
+        hf_model = AutoModelForCausalLM.from_pretrained(
+            ft_ckpt,
+            torch_dtype=_torch.bfloat16,
+            low_cpu_mem_usage=True,
+        )
+        hf_model = hf_model.to(device)
+
+        # Monkey patch AutoConfig and AutoTokenizer to use ft_ckpt when model_name is requested
+        orig_config_from_pretrained = AutoConfig.from_pretrained
+        orig_tokenizer_from_pretrained = AutoTokenizer.from_pretrained
+
+        def mock_config_from_pretrained(pretrained_model_name_or_path, *args, **kwargs):
+            if pretrained_model_name_or_path == model_name or pretrained_model_name_or_path == f"google/{model_name}":
+                return orig_config_from_pretrained(ft_ckpt, *args, **kwargs)
+            return orig_config_from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
+
+        def mock_tokenizer_from_pretrained(pretrained_model_name_or_path, *args, **kwargs):
+            if pretrained_model_name_or_path == model_name or pretrained_model_name_or_path == f"google/{model_name}":
+                return orig_tokenizer_from_pretrained(ft_ckpt, *args, **kwargs)
+            return orig_tokenizer_from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
+
+        AutoConfig.from_pretrained = mock_config_from_pretrained
+        AutoTokenizer.from_pretrained = mock_tokenizer_from_pretrained
+
+        try:
+            model = HookedTransformer.from_pretrained(model_name, hf_model=hf_model, **defaults)
+        finally:
+            AutoConfig.from_pretrained = orig_config_from_pretrained
+            AutoTokenizer.from_pretrained = orig_tokenizer_from_pretrained
+
+        # Free the HF model now that weights have been copied into HookedTransformer.
+        del hf_model
+        gc.collect()
+        _torch.cuda.empty_cache()
     else:
         if ft_ckpt:
             warnings.warn(
