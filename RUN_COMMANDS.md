@@ -21,9 +21,9 @@ All commands are run from the **project root**. Prefix with `.venv/bin/python -u
 
 Pod memory limit is ~46.5 GiB. During model load, `load_model()` in `experiments/_gemma_config.py` briefly holds the HF checkpoint **and** the HookedTransformer in memory at the same time. Mitigations already applied:
 
-- HookedTransformer built in `bfloat16` (not fp32) — halves the in-memory copy
-- HF model loaded with `low_cpu_mem_usage=True` — avoids a random-init CPU allocation
-- HF model moved to GPU immediately after load — frees CPU RAM before HookedTransformer builds
+- HookedTransformer built in `bfloat16` (not fp32) — halves the CPU copy during construction
+- HF model loaded with `low_cpu_mem_usage=True` — avoids a random-init allocation before weights load
+- HF model intentionally kept on CPU during construction — moving it to GPU prematurely forces all weight-folding operations (fold_ln etc.) onto the GPU and exhausts VRAM
 
 Before each run, clear lingering processes and cache to reclaim RAM:
 

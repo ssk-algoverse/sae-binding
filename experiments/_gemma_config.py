@@ -180,14 +180,15 @@ def load_model(preset: dict, device, **hooked_kwargs):
         import torch as _torch
         from transformers import AutoModelForCausalLM, AutoConfig, AutoTokenizer
         print(f"Loading FT checkpoint from {ft_ckpt} into {model_name} architecture...")
-        # Load in bfloat16 + meta-tensor init; then move to device so the HF copy
-        # doesn't sit on CPU while HookedTransformer builds its own copy.
+        # Load in bfloat16 + meta-tensor init to keep CPU-RAM peak low.
+        # Keep on CPU — HookedTransformer does weight processing (fold_ln etc.)
+        # on CPU before moving the final model to device; loading hf_model on
+        # GPU prematurely forces all that intermediate work onto the GPU.
         hf_model = AutoModelForCausalLM.from_pretrained(
             ft_ckpt,
             torch_dtype=_torch.bfloat16,
             low_cpu_mem_usage=True,
         )
-        hf_model = hf_model.to(device)
 
         # Monkey patch AutoConfig and AutoTokenizer to use ft_ckpt when model_name is requested
         orig_config_from_pretrained = AutoConfig.from_pretrained
