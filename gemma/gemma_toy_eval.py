@@ -21,32 +21,55 @@ def read_relations_jsonl(path: str) -> List[Dict]:
     return records
 
 
-def encode(tokenizer, text: str) -> torch.Tensor:
-    return tokenizer(text, return_tensors="pt", add_special_tokens=False).input_ids.squeeze(0)
+def encode(tokenizer, text: str) -> list[int]:
+    return tokenizer(text, add_special_tokens=False).input_ids
 
 
 def get_subset(tokenizer, text_examples, start_idx, end_idx):
-    subset = []
-    labels = []
+    """Tokenize inputs (variable length, kept as lists) and first-token labels.
+
+    We take the FIRST token of each label: that's the next-token prediction
+    target after the prompt. Under Gemma-2's tokenizer all labels happened to
+    be single-token, but Gemma-3 sometimes splits them — first-token match is
+    the intended semantic.
+    """
+    input_ids_list = []
+    label_first_tokens = []
     for rec in text_examples[start_idx:end_idx]:
-        subset.append(encode(tokenizer, rec["input"]))
-        labels.append(encode(tokenizer, rec["label"]).item())
-    subset = torch.stack(subset, dim=0)
-    return subset, labels
+        input_ids_list.append(encode(tokenizer, rec["input"]))
+        label_ids = encode(tokenizer, rec["label"])
+        label_first_tokens.append(label_ids[0])
+    return input_ids_list, label_first_tokens
 
 
-def run_inference(model, dataset, label_tokens, device, batch_size=4):
+def left_pad_batch(input_ids_list, pad_id):
+    max_len = max(len(x) for x in input_ids_list)
+    batch = torch.full((len(input_ids_list), max_len), pad_id, dtype=torch.long)
+    attn = torch.zeros((len(input_ids_list), max_len), dtype=torch.long)
+    for i, ids in enumerate(input_ids_list):
+        batch[i, max_len - len(ids):] = torch.tensor(ids, dtype=torch.long)
+        attn[i, max_len - len(ids):] = 1
+    return batch, attn
+
+
+def run_inference(model, tokenizer, input_ids_list, label_tokens, device, batch_size=4):
+    pad_id = tokenizer.pad_token_id
+    if pad_id is None:
+        pad_id = tokenizer.eos_token_id
     correct = 0
     total = 0
-    for idx in tqdm(range(0, len(dataset), batch_size), desc="examples"):
-        inputs = dataset[idx:idx + batch_size].to(device)
+    for idx in tqdm(range(0, len(input_ids_list), batch_size), desc="examples"):
+        chunk = input_ids_list[idx:idx + batch_size]
+        inputs, attn = left_pad_batch(chunk, pad_id)
+        inputs = inputs.to(device)
+        attn = attn.to(device)
         labels = torch.tensor(label_tokens[idx:idx + batch_size]).to(device)
         with torch.no_grad():
-            logits = model(input_ids=inputs).logits
+            logits = model(input_ids=inputs, attention_mask=attn).logits
         preds = logits[:, -1, :].argmax(dim=-1)
         correct += (preds == labels).sum().item()
-        total += len(inputs)
-        del inputs, labels, logits, preds
+        total += len(chunk)
+        del inputs, attn, labels, logits, preds
     accuracy = correct / total
     print(f"Accuracy: {accuracy:.4f} ({correct}/{total})")
     return accuracy
@@ -82,9 +105,9 @@ def main():
     text_examples = read_relations_jsonl(dataset_path)
 
     # Use indices 8000+ as the held-out eval split
-    dataset, labels = get_subset(tokenizer, text_examples, 8000, len(text_examples))
+    input_ids_list, labels = get_subset(tokenizer, text_examples, 8000, len(text_examples))
 
-    accuracy = run_inference(model, dataset, labels, device)
+    accuracy = run_inference(model, tokenizer, input_ids_list, labels, device)
     if accuracy < 0.90:
         print(f"WARNING: accuracy {accuracy:.4f} < 0.90 — FT may have failed; do not proceed with experiments.")
     else:
