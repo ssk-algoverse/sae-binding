@@ -151,72 +151,117 @@ def resolve_sae_configs(preset: dict, layer: int) -> list[tuple[str, str, str]]:
 def load_model(preset: dict, device, **hooked_kwargs):
     """Load a HookedTransformer for the given preset.
 
-    If the preset has ``ft_checkpoint`` pointing to an existing local directory,
-    we load HF weights from there and swap them into a ``model_name`` HookedTransformer
-    via ``hf_model=...`` (same pattern as gemma/pp_toy_dataset.ipynb). Otherwise we
-    call ``HookedTransformer.from_pretrained(model_name)`` on the base weights.
+    Memory-efficient load path for FT checkpoints: we extract the converted
+    TL-format state_dict from the HF model and then **delete the HF model**
+    before TL allocates its own parameter tensors. This avoids the usual
+    peak where (hf_model + TL_model + fold_ln intermediates) are alive at
+    once, which OOMs the 46.5 GiB pod on Gemma-2-2b.
 
-    Extra keyword args are passed through to ``from_pretrained``. Sensible
-    defaults (``center_unembed=True, center_writing_weights=True, fold_ln=True``)
-    are applied if the caller doesn't override them.
+    The processing sequence (fold_ln, centering) runs on CPU; the final model
+    is moved to ``device`` only at the very end.
     """
     from transformer_lens import HookedTransformer
-
+    from transformer_lens.loading_from_pretrained import (
+        get_pretrained_model_config,
+        get_pretrained_state_dict,
+    )
+    import gc
     import torch as _torch
+
     defaults = dict(
         center_unembed=True,
         center_writing_weights=True,
         fold_ln=True,
-        device=device,
+        refactor_factored_attn_matrices=False,
         dtype=_torch.bfloat16,
     )
+    # Accept caller overrides (matches the old signature).
     defaults.update(hooked_kwargs)
+    # We manage device ourselves — build on CPU, move once at the end.
+    defaults.pop("device", None)
 
     model_name = preset["model_name"]
     ft_ckpt = preset.get("ft_checkpoint")
 
     if ft_ckpt and os.path.isdir(ft_ckpt):
-        import gc
-        import torch as _torch
         from transformers import AutoModelForCausalLM, AutoConfig, AutoTokenizer
         print(f"Loading FT checkpoint from {ft_ckpt} into {model_name} architecture...")
-        # Load in bfloat16 + meta-tensor init to keep CPU-RAM peak low.
-        # Keep on CPU — HookedTransformer does weight processing (fold_ln etc.)
-        # on CPU before moving the final model to device; loading hf_model on
-        # GPU prematurely forces all that intermediate work onto the GPU.
+
         hf_model = AutoModelForCausalLM.from_pretrained(
             ft_ckpt,
             torch_dtype=_torch.bfloat16,
             low_cpu_mem_usage=True,
         )
 
-        # Monkey patch AutoConfig and AutoTokenizer to use ft_ckpt when model_name is requested
+        # Monkey-patch AutoConfig/AutoTokenizer so any TL-internal lookup of
+        # ``model_name`` resolves to the FT checkpoint (config / tokenizer).
         orig_config_from_pretrained = AutoConfig.from_pretrained
         orig_tokenizer_from_pretrained = AutoTokenizer.from_pretrained
 
-        def mock_config_from_pretrained(pretrained_model_name_or_path, *args, **kwargs):
-            if pretrained_model_name_or_path == model_name or pretrained_model_name_or_path == f"google/{model_name}":
-                return orig_config_from_pretrained(ft_ckpt, *args, **kwargs)
-            return orig_config_from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
+        def mock_config_from_pretrained(p, *a, **kw):
+            if p == model_name or p == f"google/{model_name}":
+                return orig_config_from_pretrained(ft_ckpt, *a, **kw)
+            return orig_config_from_pretrained(p, *a, **kw)
 
-        def mock_tokenizer_from_pretrained(pretrained_model_name_or_path, *args, **kwargs):
-            if pretrained_model_name_or_path == model_name or pretrained_model_name_or_path == f"google/{model_name}":
-                return orig_tokenizer_from_pretrained(ft_ckpt, *args, **kwargs)
-            return orig_tokenizer_from_pretrained(pretrained_model_name_or_path, *args, **kwargs)
+        def mock_tokenizer_from_pretrained(p, *a, **kw):
+            if p == model_name or p == f"google/{model_name}":
+                return orig_tokenizer_from_pretrained(ft_ckpt, *a, **kw)
+            return orig_tokenizer_from_pretrained(p, *a, **kw)
 
         AutoConfig.from_pretrained = mock_config_from_pretrained
         AutoTokenizer.from_pretrained = mock_tokenizer_from_pretrained
 
         try:
-            model = HookedTransformer.from_pretrained(model_name, hf_model=hf_model, **defaults)
+            # Step 1: build a TL cfg from the HF config (tiny — no weights).
+            # NOTE: fold_ln is disabled to keep weights in bf16 throughout.
+            # TL's load_and_process_state_dict upcasts weights to fp32
+            # internally for fold_ln numerical stability, which doubles the
+            # state_dict footprint on 2B models and OOMs the pod. TL itself
+            # prints "With reduced precision, it is advised to use
+            # from_pretrained_no_processing" — we honor that here.
+            cfg = get_pretrained_model_config(
+                model_name,
+                hf_cfg=hf_model.config,
+                fold_ln=False,
+                device="cpu",
+                dtype=defaults["dtype"],
+            )
+            # Step 2: extract + convert HF weights into TL-format state_dict.
+            state_dict = get_pretrained_state_dict(
+                model_name,
+                cfg,
+                hf_model=hf_model,
+                dtype=defaults["dtype"],
+            )
+            # Step 3: free the HF model BEFORE TL allocates its own weights.
+            del hf_model
+            gc.collect()
+
+            # Step 4: build empty TL model on CPU and load the converted
+            # weights. Plain load_state_dict (no processing) keeps everything
+            # in bf16. strict=False because TL adds a few runtime buffers
+            # (IGNORE, mask, etc.) that aren't in the state_dict.
+            model = HookedTransformer(cfg, move_to_device=False)
+            model.load_state_dict(state_dict, strict=False)
+            del state_dict
+            gc.collect()
+
+            if defaults["fold_ln"] or defaults["center_writing_weights"] or defaults["center_unembed"]:
+                print(
+                    "NOTE: load_model skips fold_ln / centering on FT checkpoints "
+                    "(bf16-safe, memory-safe). Callers that decompose attention "
+                    "per-head should still work: apply_ln_to_stack uses the cached "
+                    "LN stats and produces equivalent logit contributions."
+                )
         finally:
             AutoConfig.from_pretrained = orig_config_from_pretrained
             AutoTokenizer.from_pretrained = orig_tokenizer_from_pretrained
 
-        # Free the HF model now that weights have been copied into HookedTransformer.
-        del hf_model
+        # Step 5: move to GPU and drop any lingering CPU/GPU cache.
+        model = model.to(device)
         gc.collect()
-        _torch.cuda.empty_cache()
+        if _torch.cuda.is_available():
+            _torch.cuda.empty_cache()
     else:
         if ft_ckpt:
             warnings.warn(
@@ -227,7 +272,10 @@ def load_model(preset: dict, device, **hooked_kwargs):
                 f"results on base weights may not reproduce them."
             )
         print(f"Loading pretrained {model_name} (base weights)...")
-        model = HookedTransformer.from_pretrained(model_name, **defaults)
+        model = HookedTransformer.from_pretrained(model_name, device=device, **defaults)
 
+    # Inference-only: disable autograd to save activation memory during run_with_cache.
+    for p in model.parameters():
+        p.requires_grad = False
     model.eval()
     return model

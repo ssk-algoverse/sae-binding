@@ -19,11 +19,15 @@ All commands are run from the **project root**. Prefix with `.venv/bin/python -u
 
 ## Memory / OOM Notes
 
-Pod memory limit is ~46.5 GiB. During model load, `load_model()` in `experiments/_gemma_config.py` briefly holds the HF checkpoint **and** the HookedTransformer in memory at the same time. Mitigations already applied:
+Pod memory limit is ~46.5 GiB. Mitigations baked into `load_model()` (`experiments/_gemma_config.py`):
 
-- HookedTransformer built in `bfloat16` (not fp32) — halves the CPU copy during construction
-- HF model loaded with `low_cpu_mem_usage=True` — avoids a random-init allocation before weights load
-- HF model intentionally kept on CPU during construction — moving it to GPU prematurely forces all weight-folding operations (fold_ln etc.) onto the GPU and exhausts VRAM
+- **Staged load (avoids the double-copy peak):** extract the TL-format state_dict from the HF model, `del hf_model`, load into TL, `del state_dict`. Only one copy of the weights is ever live on CPU.
+- **No fold_ln / centering** on the FT path. TL's processing upcasts weights to fp32 internally (TL itself warns: *"With reduced precision, it is advised to use `from_pretrained_no_processing`"*), and the fp32 peak is what was tipping us over. Per-head logit-diff analysis still works — `apply_ln_to_stack` uses cached LN stats at runtime.
+- HookedTransformer built in `bfloat16` — halves every CPU copy.
+- HF model loaded with `low_cpu_mem_usage=True` — avoids the random-init allocation before weights load.
+- `requires_grad=False` on all params — inference-only, saves activation memory during `run_with_cache`.
+
+Phase 1 (`gemma_toy_eval.py`) bypasses HookedTransformer entirely and runs the HF model directly — a plain forward pass doesn't need any of fold_ln / centering.
 
 Before each run, clear lingering processes and cache to reclaim RAM:
 
