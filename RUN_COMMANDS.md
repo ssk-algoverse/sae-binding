@@ -39,6 +39,8 @@ Run the two presets **sequentially**, not in parallel, during Phases 1–2.
 
 Confirm each FT model achieves >90% retrieval accuracy before proceeding.
 
+Phase 1 loads the FT checkpoint **directly via HF** (no HookedTransformer) — avoids the double-copy + fold_ln peak that otherwise blew the RAM limit.
+
 ```bash
 # Gemma-2-2b
 GEMMA_PRESET=gemma-2-2b .venv/bin/python -u gemma/gemma_toy_eval.py
