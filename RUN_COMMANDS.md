@@ -8,8 +8,8 @@ All commands are run from the **project root**. Prefix with `.venv/bin/python -u
 |---|---|---|
 | FT checkpoint | `gemma2_ft_toy/checkpoint-900` ✓ | `gemma3_1b_ft_toy/checkpoint-900` ✓ |
 | Sanity check | not yet run | not yet run |
-| `per_head_logit_diffs.pt` | exists (may be stale) | not yet run |
-| `target_layer / target_head` | L22 / H4 (already in config) | None — need pp first |
+| `per_head_logit_diffs.pt` | exists ✓ | exists ✓ |
+| `target_layer / target_head` | L22 / H4 ✓ | L22 / H3 ✓ |
 | exp4 | not run | not run |
 | exp5 | not run | N/A (gemma-2-2b only) |
 | exp6 | not run | not run |

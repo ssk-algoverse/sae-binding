@@ -70,9 +70,9 @@ PRESETS = {
     "gemma-3-1b-pt": {
         "model_name": "gemma-3-1b-pt",
         "ft_checkpoint": "gemma3_1b_ft_toy/checkpoint-900",
-        "target_layer": None,   # fill in after running gemma/pp_toy_dataset.py
-        "target_head": None,    # fill in after running gemma/pp_toy_dataset.py
-        "random_head_layer_range": None,  # fill in after target_layer is known
+        "target_layer": 22,
+        "target_head": 3,
+        "random_head_layer_range": (18, 26),
         "sae_configs": [
             # Placeholder — confirm exact release/id against Neuronpedia.
             ("gs2 / width_16k / canonical",
