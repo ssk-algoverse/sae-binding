@@ -226,7 +226,7 @@ def load_model(preset: dict, device, **hooked_kwargs):
             # from_pretrained_no_processing" — we honor that here.
             cfg = get_pretrained_model_config(
                 model_name,
-                hf_cfg=hf_model.config,
+                hf_cfg=hf_model.config.to_dict(),
                 fold_ln=False,
                 device="cpu",
                 dtype=defaults["dtype"],
