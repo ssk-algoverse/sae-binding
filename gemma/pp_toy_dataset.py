@@ -20,6 +20,10 @@ def logits_to_ave_logit_diff(logits, answer_tokens, per_prompt=False):
 
 def residual_stack_to_logit_diff(residual_stack, cache, logit_diff_directions):
     ln_residual_stack = cache.apply_ln_to_stack(residual_stack, layer=-1, pos_slice=-1)
+    # apply_ln_to_stack runs LN in fp32 for stability; logit_diff_directions
+    # comes from W_U in bf16. Promote both to fp32 for the einsum.
+    ln_residual_stack = ln_residual_stack.to(torch.float32)
+    logit_diff_directions = logit_diff_directions.to(torch.float32)
     average_logit_diff = einops.einsum(ln_residual_stack, logit_diff_directions, "... batch d_model, batch d_model ->...") / residual_stack.shape[0]
     return average_logit_diff
 
