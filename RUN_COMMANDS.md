@@ -21,7 +21,8 @@ All commands are run from the **project root**. Prefix with `.venv/bin/python -u
 
 Pod memory limit is ~46.5 GiB. Mitigations baked into `load_model()` (`experiments/_gemma_config.py`):
 
-- **Staged load (avoids the double-copy peak):** extract the TL-format state_dict from the HF model, `del hf_model`, load into TL, `del state_dict`. Only one copy of the weights is ever live on CPU.
+- **HF on GPU during conversion:** `hf_model.to(device)` immediately after load, so the HF→TL state_dict conversion runs on GPU and **CPU RAM is free** while TL is built later. The intermediate state_dict is then drained to CPU one tensor at a time, freeing each GPU tensor as it goes.
+- **Staged load (avoids the double-copy peak):** extract the TL-format state_dict, `del hf_model`, load into TL, `del state_dict`. Only one copy of the weights is ever live on CPU at a time.
 - **No fold_ln / centering** on the FT path. TL's processing upcasts weights to fp32 internally (TL itself warns: *"With reduced precision, it is advised to use `from_pretrained_no_processing`"*), and the fp32 peak is what was tipping us over. Per-head logit-diff analysis still works — `apply_ln_to_stack` uses cached LN stats at runtime.
 - HookedTransformer built in `bfloat16` — halves every CPU copy.
 - HF model loaded with `low_cpu_mem_usage=True` — avoids the random-init allocation before weights load.

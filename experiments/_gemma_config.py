@@ -192,6 +192,11 @@ def load_model(preset: dict, device, **hooked_kwargs):
             torch_dtype=_torch.bfloat16,
             low_cpu_mem_usage=True,
         )
+        # Move HF to GPU before conversion. Keeps CPU RAM free for the
+        # later TL allocation. Without fold_ln (which we skip — see below),
+        # there's no GPU-VRAM blowup from putting hf_model on the device.
+        if str(device) != "cpu" and _torch.cuda.is_available():
+            hf_model = hf_model.to(device)
 
         # Monkey-patch AutoConfig/AutoTokenizer so any TL-internal lookup of
         # ``model_name`` resolves to the FT checkpoint (config / tokenizer).
@@ -227,17 +232,30 @@ def load_model(preset: dict, device, **hooked_kwargs):
                 dtype=defaults["dtype"],
             )
             # Step 2: extract + convert HF weights into TL-format state_dict.
+            # hf_model is on GPU, so the conversion (rearranges, transposes)
+            # runs on GPU and the result tensors live in VRAM, NOT in CPU RAM.
             state_dict = get_pretrained_state_dict(
                 model_name,
                 cfg,
                 hf_model=hf_model,
                 dtype=defaults["dtype"],
             )
-            # Step 3: free the HF model BEFORE TL allocates its own weights.
+            # Step 3: pull state_dict to CPU one tensor at a time, freeing
+            # each GPU tensor as we go. ``pop`` releases the old dict's
+            # reference before the next iteration so VRAM drains as we copy.
+            cpu_state_dict = {}
+            for k in list(state_dict.keys()):
+                cpu_state_dict[k] = state_dict.pop(k).detach().to("cpu")
+            state_dict = cpu_state_dict
+            del cpu_state_dict
+
+            # Step 4: free the HF model — VRAM and any CPU residue.
             del hf_model
             gc.collect()
+            if _torch.cuda.is_available():
+                _torch.cuda.empty_cache()
 
-            # Step 4: build empty TL model on CPU and load the converted
+            # Step 5: build empty TL model on CPU and load the converted
             # weights. Plain load_state_dict (no processing) keeps everything
             # in bf16. strict=False because TL adds a few runtime buffers
             # (IGNORE, mask, etc.) that aren't in the state_dict.
@@ -257,7 +275,7 @@ def load_model(preset: dict, device, **hooked_kwargs):
             AutoConfig.from_pretrained = orig_config_from_pretrained
             AutoTokenizer.from_pretrained = orig_tokenizer_from_pretrained
 
-        # Step 5: move to GPU and drop any lingering CPU/GPU cache.
+        # Step 6: move TL model to GPU and drop any lingering cache.
         model = model.to(device)
         gc.collect()
         if _torch.cuda.is_available():
