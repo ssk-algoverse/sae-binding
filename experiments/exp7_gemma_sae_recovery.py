@@ -95,7 +95,7 @@ def collect_raw_activations(model, layer, max_prompts):
         acts = cache[filter_name][0]
 
         for sp, e1, t_rel, e2 in facts:
-            raw_acts.append(acts[sp].cpu().numpy())
+            raw_acts.append(acts[sp].float().cpu().numpy())
             metadata["e2"].append(e2)
             metadata["e1_t"].append(f"{e1}_{t_rel}")
 

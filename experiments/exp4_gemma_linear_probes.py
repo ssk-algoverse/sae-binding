@@ -98,7 +98,7 @@ def collect_activations(model, n_layers, max_prompts=MAX_PROMPTS):
         for fact in facts:
             sp = fact["sep_pos"]
             for l in range(n_layers):
-                act = cache[f"blocks.{l}.hook_resid_post"][0, sp, :].cpu().numpy()
+                act = cache[f"blocks.{l}.hook_resid_post"][0, sp, :].float().cpu().numpy()
                 layer_acts[l].append(act)
 
             metadata["e1"].append(fact["e1"])
