@@ -94,15 +94,24 @@ Core experiments (Priority 0 toy proofs + Gemma-2-2B replication) are complete. 
 
 **Script**: [exp4_gemma_linear_probes.py](experiments/exp4_gemma_linear_probes.py)
 
-**Goal**: Reproduce the representational factorization scaling observation (Table 1) in a real pretrained language model (Gemma-2-2b).
+**Goal**: Reproduce the representational factorization scaling observation (Table 1) in real pretrained language models (Gemma-2-2b and Gemma-3-1b-pt). Ridge Classifiers are trained on `resid_post` at the comma/period markers across all 26 layers, with 5 prompt-level splits.
 
-**Results**:
-- We trained Ridge Classifiers on `resid_post` at the comma/period markers indicating the end of facts across all 26 layers.
-- The results demonstrate the "staged retrieval circuit" mechanism is occurring naturally in Gemma.
+### Results — best layer per variable (mean ± std holdout accuracy)
 
-![Gemma Probe Accuracies](experiments/results/gemma/gemma_probe_accuracies.png)
+| Variable | Gemma-2-2b | Gemma-3-1b-pt |
+|---|---|---|
+| $E_1$ (head entity) | L24 — 0.998±0.001 | L2 — 0.954±0.008 |
+| $T$ (relation) | L3 — 1.000±0.000 | L3 — 0.999±0.001 |
+| $E_2$ (payload) | L0 — 1.000±0.000 | L2 — 1.000±0.000 |
+| $(E_1, T)$ composed | **L18 — 0.901±0.017** | **L10 — 0.507±0.029** |
 
-***Explanation of the Plot:** This layer-by-layer diagnostic traces the linear decodability of relational variables through the depth of the 2-billion parameter Gemma model. It perfectly mirrors the exact staged-factorization seen in our toy setting: early layers uniquely form linear representations for distinct components, which gradually fuse out as the highly decodable, composed address ($E_1 + T$) subspace solidifies across the mid-to-late network layers.*
+> [!IMPORTANT]
+> Both models exhibit the same staged factorization pattern: individual variables ($E_1$, $T$, $E_2$) are linearly decodable in early layers, while the **composed** $(E_1, T)$ address forms gradually and peaks mid-network — at L18 in Gemma-2-2b and L10 in Gemma-3-1b-pt. The composed-address peak in Gemma-3-1b-pt is markedly weaker (0.51 vs 0.90), consistent with the smaller model having lower-dimensional address structure (4 query heads × 1 KV head, GQA) and providing less capacity for high-rank conjunctive packing.
+
+![Gemma-2-2b Probes](experiments/results/gemma/gemma-2-2b_probe_accuracies_holdout.png)
+![Gemma-3-1b-pt Probes](experiments/results/gemma/gemma-3-1b-pt_probe_accuracies_holdout.png)
+
+***Explanation of the Plots:** Both models reproduce the staged-factorization signature seen in the toy setup: $E_2$ (payload) is decodable from the very earliest layers and decays as the residual rotates away; $E_1$ and $T$ are linearly available throughout; the composed $(E_1, T)$ subspace solidifies later. The Gemma-3-1b-pt curve is a noisier, lower-amplitude version of the Gemma-2-2b curve — qualitatively the same circuit shape, quantitatively weaker.*
 
 ---
 
@@ -110,19 +119,25 @@ Core experiments (Priority 0 toy proofs + Gemma-2-2B replication) are complete. 
 
 **Scripts**: [exp5_gemma_causal_patching_plot.py](experiments/exp5_gemma_causal_patching_plot.py) & [exp6_gemma_qk_matching.py](experiments/exp6_gemma_qk_matching.py)
 
-**Goal**: Prove that Gemma-2-2B functionally uses the factorized representations identified in Experiment 4 via the same staged retrieval mechanism found in the toy model.
+**Goal**: Prove that the pretrained models functionally use the factorized representations identified in Experiment 4 via the same staged retrieval mechanism found in the toy model.
 
-**Results**:
-- **Causal Patching:** By running path patching over all 208 attention heads (26 layers × 8 heads), we find that **L22H4** shows the largest single-head causal effect on the output logit, making it the dominant routing contributor for the address subspace.
-- **QK Matching:** We computed the pre-softmax dot product $Q^T K$ for L22H4 between the query token and all fact separator commas in the context. The head explicitly pattern-matches on the correct fact's comma position, reliably separating it from distractor commas (see plot below).
+### Gemma-2-2b — circuit reproduces cleanly
 
-These two tests confirm that the retrieval circuit wiring is identical between our toy setup and bleeding-edge LLMs.
+- **Causal Patching:** Path patching over all 208 attention heads (26 layers × 8 heads) identifies **L22H4** as the single dominant causal head (max diff 0.087, no nearby competitors).
+- **QK Matching (held-out half, n=16 prompts):** L22H4's pre-softmax $Q^\top K$ scores separate the correct comma (μ = −14.4) from distractor commas (μ = −95.6) and from a random-position null (μ = −88.4), a margin of ≈ +81. A random-head null sits at μ = +1.9, with no class-conditional structure.
 
-![Gemma Causal Patching Heatmap](experiments/results/gemma/gemma_causal_patching.png)
+![Gemma-2-2b Causal Patching Heatmap](experiments/results/gemma/gemma_causal_patching.png)
+![Gemma-2-2b QK Matching](experiments/results/gemma/gemma-2-2b_qk_matching.png)
 
-![Gemma QK Matching Distribution](experiments/results/gemma/gemma_qk_matching.png)
+### Gemma-3-1b-pt — head identification is noisy and Q-K matching does NOT replicate
 
-***Explanation of the Plots:** The top causal patching heatmap shows the effect of intervening on different heads in Gemma across all 26 layers, exposing **Layer 22 Head 4** as the single critical routing mechanism capable of pivoting the network's output (bright red square). The bottom density plot zooms into this specific head, revealing how its query-key attention scores cleanly and unambiguously spike precisely on the correct factorized context address (green distribution) versus all irrelevant distractors (red distribution).*
+- **Path patching:** the top head is **L22H3**, but the max per-head logit diff (0.005) is roughly **16× weaker** than Gemma-2-2b's (0.087) — already a hint that no single head dominates routing in the smaller model.
+- **QK Matching (held-out half, n=16 prompts):** L22H3 attends roughly equally to *every* comma — correct comma μ = 680.5, distractor commas μ = 680.3, random-position null μ = 656.3. The margin is essentially zero. The random-head null is far lower (μ = 112.3), so L22H3 *is* a comma-attending head — it just doesn't discriminate the correct fact.
+
+![Gemma-3-1b-pt QK Matching](experiments/results/gemma/gemma-3-1b-pt_qk_matching.png)
+
+> [!WARNING]
+> The Gemma-3-1b-pt result is a genuine negative finding, not a bug in the run: path patching is intrinsically weak (max effect 0.005), and the head it does pick (L22H3) attends to all separator commas indiscriminately. Possible interpretations: (a) Gemma-3-1b distributes the address-matching mechanism across multiple heads with no single dominant one; (b) the smaller model uses an MLP-mediated routing path rather than same-head Q-K matching; (c) the fact-separator selection happens *upstream* and L22H3 just executes a generic "look at commas" pattern. This warrants further investigation before being claimed as a positive replication.
 
 ---
 
@@ -130,16 +145,29 @@ These two tests confirm that the retrieval circuit wiring is identical between o
 
 **Script**: [exp7_gemma_sae_recovery.py](experiments/exp7_gemma_sae_recovery.py)
 
-**Goal**: Prove that the "Dark Matter" feature recovery failure mode extends to state-of-the-art SAEs trained on large pretrained models. Specifically, we evaluate whether Google's `gemma-scope-2b-pt-res` (L22, width 16k SAE) can faithfully reconstruct the composed address subspace. 
+**Goal**: Test whether the "Dark Matter" feature recovery failure mode extends to state-of-the-art SAEs trained on large pretrained models, using Google's `gemma-scope-2b-pt-res` (L22, width 16k, canonical L0~72 release) on Gemma-2-2b activations at fact separators. Ridge Classifiers (≥5-example classes, 3-fold stratified CV, 5 seeds) decode $E_2$ and $(E_1, T)$ from raw `resid_post` vs. SAE-reconstructed and SAE-latent activations, with **rank-matched PCA and random-projection controls** at the SAE's effective rank (k = 48).
 
-**Results**:
-We trained Ridge Classifiers (filtering to classes with ≥5 examples; 3-fold stratified CV) on the comma activations at Layer 22 to separate the raw `resid_post` from the `SAE_reconstructed_resid_post`.
-1. **Payload Variable ($E_2$)**: Decodability remains highly preserved through the SAE reconstruction hurdle.
-2. **Composed Address ($E_1, T$)**: Accuracy degrades ~5x (15.5% $\rightarrow$ 3.1%) across hundreds of zero-shot (E1, T) classes. The raw baseline is itself modest — linear decoding of the full composed address at the comma is a hard multi-class task — so the cleaner read is the *ratio* of degradation: $E_2$ survives SAE reconstruction, while (E1, T) collapses toward chance relative to what linear probes could extract pre-SAE.
+### Gemma-2-2b — current numbers (gs1 / width_16k / canonical, L0=47.7, EV=−0.14)
 
-This guarantees the paper's central thesis: composed structural representations form overlapping density manifolds that strongly resist recovery via standard sparse topological decomposition.
+| Probe target | Raw `resid_post` | SAE recon `X̂` | SAE latents `z` | PCA rank-48 | RandProj rank-48 |
+|---|---|---|---|---|---|
+| $E_2$ (payload) | **0.99** | 0.04 | 0.04 | 0.02 | 0.03 |
+| $(E_1, T)$ composed | **0.89** | 0.35 | 0.35 | 0.21 | 0.22 |
 
-![Gemma Scope SAE Dark Matter Evaluation](experiments/results/gemma/gemma_sae_recovery.png)
+![Gemma-2-2b SAE Recovery](experiments/results/gemma/gemma-2-2b_sae_recovery.png)
 
-***Explanation of the Plot:** This final bar chart visually details feature recovery through a Google-native Sparse Autoencoder. The generic, 1D Payload Entity ($E_2$) maintains moderately strong linear decodability after passing through the dictionary reconstruction (blue vs red bars). Conversely, the composed multi-variate structure ($E_1 + T$) exhibits a near-total collapse to random-chance accuracy. This mathematically verifies the 'dark matter' hypothesis internally within bleeding-edge models at scale: topological density limits topological sparsity.*
+> [!WARNING]
+> **These numbers do not match the previous results.md narrative or `paper.tex` §4.4.** The earlier text claimed "$E_2$ survives, $(E_1, T)$ collapses 5×". The current run shows the *opposite directional ranking*:
+> - $E_2$ collapses harder ($0.99 \to 0.04$, ≈96% relative drop) and is statistically indistinguishable from PCA / RandProj controls — i.e. the SAE preserves no $E_2$-specific structure beyond a rank-matched random projection.
+> - $(E_1, T)$ degrades less in absolute terms ($0.89 \to 0.35$, ≈61% relative drop) and **sits clearly above** the rank-matched controls (0.21–0.22), meaning the SAE *does* preserve some composed-address structure.
+>
+> The canonical SAE has `EV = −0.14` here (variance-explained worse than predicting the mean), so this run is operating in a regime where the SAE is genuinely destroying information. Reading: the dark-matter claim as currently written may need either (a) re-evaluation against a different SAE config (e.g. the `average_l0_22` denser variant, also listed in `_gemma_config.py`), or (b) a reframing — the *relative* preservation pattern flipped vs. the toy model, but the absolute collapse for both variables is real.
+
+### Gemma-3-1b-pt — **not yet run**
+
+```bash
+GEMMA_PRESET=gemma-3-1b-pt .venv/bin/python -u experiments/exp7_gemma_sae_recovery.py
+```
+
+Note that the `gemma-3-1b-pt` preset in `experiments/_gemma_config.py` declares the SAE release `gemma-scope-2-1b-pt-res` with the comment *"Placeholder — confirm exact release/id against Neuronpedia"*. Verify the release exists in `sae_lens` before running, otherwise exp7 will fail at SAE load.
 

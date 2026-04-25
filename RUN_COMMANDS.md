@@ -7,13 +7,13 @@ All commands are run from the **project root**. Prefix with `.venv/bin/python -u
 | Item | Gemma-2-2b | Gemma-3-1b |
 |---|---|---|
 | FT checkpoint | `gemma2_ft_toy/checkpoint-900` ✓ | `gemma3_1b_ft_toy/checkpoint-900` ✓ |
-| Sanity check | not yet run | not yet run |
-| `per_head_logit_diffs.pt` | exists ✓ | exists ✓ |
+| Sanity check | ✓ 99.9% acc | ✓ 99.9% acc |
+| `per_head_logit_diffs.pt` | exists ✓ (max diff 0.087) | exists ✓ (max diff 0.005, ~16× weaker) |
 | `target_layer / target_head` | L22 / H4 ✓ | L22 / H3 ✓ |
-| exp4 | not run | not run |
-| exp5 | not run | N/A (gemma-2-2b only) |
-| exp6 | not run | not run |
-| exp7 | not run | not run |
+| exp4 — (E1,T) probe | ✓ best L18, holdout 0.901±0.017 | ✓ best L10, holdout 0.507±0.029 |
+| exp5 — causal patching | ✓ L22H4 dominant single head | N/A (gemma-2-2b only) |
+| exp6 — Q-K matching | ✓ correct vs distractor margin ≈ +81 | ✓ ran, **but no margin** (correct μ=680.5 vs distractor μ=680.3) |
+| exp7 — SAE recovery | ✓ but contradicts paper text (see below) | **not yet run** |
 
 ---
 
