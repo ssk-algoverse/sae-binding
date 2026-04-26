@@ -25,10 +25,16 @@ That way the config only needs to know the user-meaningful knobs:
   • target_layer / head    — identified by ``gemma/pp_toy_dataset.ipynb``; must be
                              filled in after running path patching on a new
                              model
+  • sae_layer              — optional layer for exp7 (SAE recovery). Defaults
+                             to ``target_layer``. Override when the SAE release
+                             doesn't ship an SAE at ``target_layer`` (e.g.
+                             Gemma-Scope-2-1b only has SAEs at L7/13/17/22) or
+                             when (E1,T) decodability peaks at a different
+                             layer than the routing head.
   • random_head_layer_range — window for exp6's random-head null
   • sae_configs            — list of (label, sae_lens_release, sae_id_template)
                              tuples. ``{layer}`` in the sae_id is substituted
-                             with target_layer at runtime.
+                             with the SAE layer at runtime.
 """
 from __future__ import annotations
 import os
@@ -72,6 +78,11 @@ PRESETS = {
         "ft_checkpoint": "gemma3_1b_ft_toy/checkpoint-900",
         "target_layer": 22,
         "target_head": 3,
+        # exp7 uses sae_layer (not target_layer): L22 sits past the (E1,T)
+        # decodability peak in this model (peak L10 = 0.51, drops to 0.24 by
+        # L22). L13 is the closest SAE-equipped layer to that peak in the
+        # gemma-scope-2-1b-pt-res release (available: L7, L13, L17, L22).
+        "sae_layer": 13,
         "random_head_layer_range": (18, 26),
         "sae_configs": [
             # gemma-scope-2-1b-pt-res IDs use underscores (not slashes) and
@@ -144,6 +155,18 @@ def model_arch(model) -> dict:
 def kv_head_for(q_head: int, group_size: int) -> int:
     """Map a query-head index to its shared KV-head index under GQA."""
     return q_head // group_size
+
+
+def sae_layer_for(preset: dict) -> int:
+    """Layer to use for SAE recovery (exp7).
+
+    Falls back to ``target_layer`` when ``sae_layer`` is not set. Exists so
+    exp7 can analyse a layer where the SAE release actually has weights, or
+    where the variable of interest is most decodable, without disturbing
+    Q-K matching analyses (exp6) that need ``target_layer``.
+    """
+    layer = preset.get("sae_layer")
+    return layer if layer is not None else preset["target_layer"]
 
 
 def resolve_sae_configs(preset: dict, layer: int) -> list[tuple[str, str, str]]:

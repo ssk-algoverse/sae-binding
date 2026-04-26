@@ -36,7 +36,7 @@ from transformers import logging as hf_logging
 hf_logging.set_verbosity_error()
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _gemma_config import get_preset, require, resolve_sae_configs, load_model
+from _gemma_config import get_preset, require, resolve_sae_configs, load_model, sae_layer_for
 
 SEED = 0
 MAX_PROMPTS = 1500
@@ -169,11 +169,14 @@ def main():
 
     preset = get_preset()
     require(preset, "target_layer")
-    layer = preset["target_layer"]
+    layer = sae_layer_for(preset)
     configs = resolve_sae_configs(preset, layer=layer)
 
     model = load_model(preset, device)
-    print(f"  preset={preset['_name']}  target_layer=L{layer}  n_configs={len(configs)}")
+    if layer != preset["target_layer"]:
+        print(f"  preset={preset['_name']}  sae_layer=L{layer} (target_layer=L{preset['target_layer']})  n_configs={len(configs)}")
+    else:
+        print(f"  preset={preset['_name']}  sae_layer=L{layer}  n_configs={len(configs)}")
 
     raw_acts, metadata = collect_raw_activations(model, layer=layer, max_prompts=MAX_PROMPTS)
     print(f"Total facts collected: {len(raw_acts)}")
@@ -260,7 +263,13 @@ def main():
     fig.suptitle(f"{preset['model_name']} L{layer}: SAE recovery vs rank-matched controls (seeds={N_BOOT_SEEDS})",
                  fontsize=12, fontweight="bold")
     plt.tight_layout()
-    out_path = f"experiments/results/gemma/{preset['_name']}_sae_recovery.png"
+    # Only suffix the filename with the layer when sae_layer differs from
+    # target_layer — preserves the existing default file path for the legacy
+    # gemma-2-2b run while giving each sae_layer override its own file.
+    if layer != preset["target_layer"]:
+        out_path = f"experiments/results/gemma/{preset['_name']}_sae_recovery_L{layer}.png"
+    else:
+        out_path = f"experiments/results/gemma/{preset['_name']}_sae_recovery.png"
     plt.savefig(out_path, dpi=150)
     print(f"\nSaved plot to {out_path}")
 
