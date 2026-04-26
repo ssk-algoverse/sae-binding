@@ -56,7 +56,12 @@ def set_seed(seed):
 
 def load_sae(release, sae_id, device):
     print(f"  Loading SAE: {release} / {sae_id}")
-    sae, _, _ = SAE.from_pretrained(release=release, sae_id=sae_id, device=device)
+    # sae_lens validates device strings strictly — bare "cuda" is rejected
+    # in newer versions, needs explicit "cuda:0" (or "cpu").
+    dev_str = str(device)
+    if dev_str == "cuda":
+        dev_str = "cuda:0"
+    sae, _, _ = SAE.from_pretrained(release=release, sae_id=sae_id, device=dev_str)
     return sae
 
 
