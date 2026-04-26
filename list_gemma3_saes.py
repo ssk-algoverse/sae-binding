@@ -3,7 +3,7 @@
 Usage:
     .venv/bin/python list_gemma3_saes.py
 """
-from sae_lens.toolkit.pretrained_saes_directory import get_pretrained_saes_directory
+from sae_lens.loading.pretrained_saes_directory import get_pretrained_saes_directory
 
 RELEASE = "gemma-scope-2-1b-pt-res"
 
