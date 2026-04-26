@@ -74,10 +74,16 @@ PRESETS = {
         "target_head": 3,
         "random_head_layer_range": (18, 26),
         "sae_configs": [
-            # Placeholder — confirm exact release/id against Neuronpedia.
-            ("gs2 / width_16k / canonical",
+            # gemma-scope-2-1b-pt-res IDs use underscores (not slashes) and
+            # explicit l0_{small,medium,big} qualifiers (no "canonical").
+            # SAEs exist at layers 7, 13, 17, 22 only — confirmed via
+            # ``list_gemma3_saes.py``.
+            ("gs2 / width_16k / l0_medium",
              "gemma-scope-2-1b-pt-res",
-             "layer_{layer}/width_16k/canonical"),
+             "layer_{layer}_width_16k_l0_medium"),
+            ("gs2 / width_16k / l0_big (denser)",
+             "gemma-scope-2-1b-pt-res",
+             "layer_{layer}_width_16k_l0_big"),
         ],
     },
     "gemma-3-4b-pt": {
