@@ -1,5 +1,7 @@
 # Investigating Relational Composition in Neural Network
 
+**For full instructions on reproducing the paper's experiments (generating all plots and metrics), see the [Experiments README](EXPERIMENTS_README.md).**
+
 * `toy_model`: notebook for training a 2-layer, 1-attention head toy transformer with a dataset of `entity`, `entity_type`, `attributes`.
 * `binding_echo`: notebook for finding echo features, etc
 * `circuit`: activation patterns for a circuit
