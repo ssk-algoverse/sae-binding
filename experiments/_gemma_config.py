@@ -59,9 +59,9 @@ PRESETS = {
             ("gs1 / width_16k / canonical (L0~72)",
              "gemma-scope-2b-pt-res-canonical",
              "layer_{layer}/width_16k/canonical"),
-            ("gs1 / width_16k / l0~22 (sparser)",
+            ("gs1 / width_16k / l0~21 (sparser)",
              "gemma-scope-2b-pt-res",
-             "layer_{layer}/width_16k/average_l0_22"),
+             "layer_{layer}/width_16k/average_l0_21"),
         ],
     },
 

@@ -27,35 +27,52 @@ been removed. Don't resurrect it without aligning model + dataset with the
 rest of the Gemma experiments.
 """
 import os
+import sys
 import torch
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _gemma_config import get_preset
+
 def main():
+    preset = get_preset()
+    preset_name = preset["_name"]
     os.makedirs("experiments/results/gemma", exist_ok=True)
-    
-    # Load per-head logit differences
-    per_head = torch.load("gemma/per_head_logit_diffs.pt", map_location="cpu")
-    print(f"Loaded per-head shape: {per_head.shape}") # Expected: [26, 8]
-    
-    # Plot heatmap
+
+    # Per-preset .pt path: gemma-2-2b uses the canonical name; others use a
+    # suffix so multiple runs coexist without overwriting each other.
+    if preset_name == "gemma-2-2b":
+        pt_path = "gemma/per_head_logit_diffs.pt"
+    else:
+        pt_path = f"gemma/per_head_logit_diffs_{preset_name}.pt"
+
+    if not os.path.exists(pt_path):
+        raise FileNotFoundError(
+            f"Expected {pt_path}. Re-run gemma/pp_toy_dataset.py for preset "
+            f"'{preset_name}' and save the tensor there."
+        )
+
+    per_head = torch.load(pt_path, map_location="cpu")
+    print(f"Loaded per-head shape: {per_head.shape}")
+
     plt.figure(figsize=(10, 8))
     sns.heatmap(
-        per_head.detach().numpy(), 
-        cmap="coolwarm", 
+        per_head.detach().float().numpy(),
+        cmap="coolwarm",
         center=0,
         cbar_kws={'label': 'Logit Difference'}
     )
-    plt.title("Gemma-2-2B Causal Patching: Per-Head Effect")
+    plt.title(f"{preset_name} Causal Patching: Per-Head Effect")
     plt.xlabel("Head Index")
     plt.ylabel("Layer")
     plt.tight_layout()
-    
-    out_path = "experiments/results/gemma/gemma_causal_patching.png"
+
+    out_path = f"experiments/results/gemma/{preset_name}_causal_patching.png"
     plt.savefig(out_path, dpi=150)
-    print(f"Saved plotting to {out_path}")
-    
+    print(f"Saved to {out_path}")
+
 if __name__ == "__main__":
     main()

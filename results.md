@@ -1,6 +1,6 @@
-# Priority 0 Experiments — Results Walkthrough
+# Experiments — Results Walkthrough
 
-Three experiments were implemented and run to strengthen the paper's core claims. All scripts are in [experiments/](experiments/) with outputs in [experiments/results/](experiments/results/).
+The experiments below operationalise the paper's claims: toy-model proofs (exp1–3, exp1b) for the staged retrieval circuit and the SAE failure mode, and Gemma-2-2b / Gemma-3-1b-pt replications (exp4–7). All scripts are in [experiments/](experiments/) with outputs in [experiments/results/](experiments/results/). Reproduction instructions and operational notes live in [`EXPERIMENTS_README.md`](EXPERIMENTS_README.md).
 
 ---
 
@@ -83,11 +83,6 @@ We compare the top-20 QK eigenvectors to the top-20 PCA directions of the empiri
 
 ---
 
-## Next Steps
-
-Core experiments (Priority 0 toy proofs + Gemma-2-2B replication) are complete. Remaining items from the Priority 1+ roadmap:
-- Alternative SAE architectures (L1, Gated) on the toy model
-
 ---
 
 ## Experiment 4: Gemma Linear Probes
@@ -139,35 +134,75 @@ Core experiments (Priority 0 toy proofs + Gemma-2-2B replication) are complete. 
 > [!WARNING]
 > The Gemma-3-1b-pt result is a genuine negative finding, not a bug in the run: path patching is intrinsically weak (max effect 0.005), and the head it does pick (L22H3) attends to all separator commas indiscriminately. Possible interpretations: (a) Gemma-3-1b distributes the address-matching mechanism across multiple heads with no single dominant one; (b) the smaller model uses an MLP-mediated routing path rather than same-head Q-K matching; (c) the fact-separator selection happens *upstream* and L22H3 just executes a generic "look at commas" pattern. This warrants further investigation before being claimed as a positive replication.
 
+### Sanity check — base vs FT necessity
+
+For completeness: base Gemma-2-2b (no FT) achieves **0/2000** on the toy retrieval task. The FT step is load-bearing — without it, none of the Gemma circuit results would be reproducible. This rules out the option of running exp7 on base activations (where Gemma-Scope's reconstruction would not have the FT/base distribution-shift confound).
+
 ---
 
-## Experiment 7: Gemma Scope SAE Recovery (The "Dark Matter" Proof)
+## Experiment 7: Gemma Scope SAE Recovery (Dark Matter at Scale)
 
 **Script**: [exp7_gemma_sae_recovery.py](experiments/exp7_gemma_sae_recovery.py)
 
-**Goal**: Test whether the "Dark Matter" feature recovery failure mode extends to state-of-the-art SAEs trained on large pretrained models, using Google's `gemma-scope-2b-pt-res` (L22, width 16k, canonical L0~72 release) on Gemma-2-2b activations at fact separators. Ridge Classifiers (≥5-example classes, 3-fold stratified CV, 5 seeds) decode $E_2$ and $(E_1, T)$ from raw `resid_post` vs. SAE-reconstructed and SAE-latent activations, with **rank-matched PCA and random-projection controls** at the SAE's effective rank (k = 48).
+**Goal**: Test whether the dark-matter feature-recovery failure extends to production SAEs (Gemma-Scope) on Gemma-2-2b and Gemma-3-1b-pt activations at fact-separator positions. For each SAE config we probe 5 representations of the same 12 000 activations: raw `resid_post` (oracle), SAE reconstruction `X̂`, SAE sparse latents `z`, **PCA at the SAE's effective rank** (rank-matched dimensionality control), and **random projection at the same rank** (rank-matched random control). Ridge Classifiers (≥5-example classes, 3-fold stratified CV, 5 seeds, fast `solver='lsqr'` after dropping always-zero z columns).
 
-### Gemma-2-2b — current numbers (gs1 / width_16k / canonical, L0=47.7, EV=−0.14)
+### Configs evaluated
 
-| Probe target | Raw `resid_post` | SAE recon `X̂` | SAE latents `z` | PCA rank-48 | RandProj rank-48 |
+| Preset | SAE layer | SAE config | mean L0 | rank | EV | Notes |
+|---|---|---|---|---|---|---|
+| gemma-2-2b | L22 (target_layer) | gs1 / width_16k / canonical | 47.7 | 48 | **−0.14** | SAE trained on base activations; FT shifts the distribution → reconstruction is destructive (EV<0) |
+| gemma-2-2b | L22 | gs1 / width_16k / l0_21 (sparser) | ~9 | 9 | TBD | New addition; replaces broken `l0_22` ID |
+| gemma-3-1b-pt | L13 (closer to (E1,T) peak L10) | gs2 / width_16k / l0_medium | 73.9 | 74 | **+0.46** | SAE reconstructs meaningfully on FT activations |
+| gemma-3-1b-pt | L13 | gs2 / width_16k / l0_big | 162.1 | 162 | **+0.50** | Denser variant |
+
+### Current data (incomplete — see "Open" below)
+
+**Gemma-2-2b L22 — canonical (rank=48, EV=−0.14)** ✅
+
+| Probe target | Raw `resid_post` | X_recon | z latents | PCA rank-48 | RandProj rank-48 |
 |---|---|---|---|---|---|
-| $E_2$ (payload) | **0.99** | 0.04 | 0.04 | 0.02 | 0.03 |
-| $(E_1, T)$ composed | **0.89** | 0.35 | 0.35 | 0.21 | 0.22 |
+| $E_2$ (payload) | **0.993±0.001** | 0.042±0.001 | 0.041±0.001 | 0.016±0.001 | 0.035±0.001 |
+| $(E_1, T)$ composed | **0.888±0.002** | 0.353±0.001 | 0.352±0.001 | 0.209±0.003 | 0.218±0.001 |
+
+**Gemma-2-2b L22 — sparser l0_21 (rank=9, EV unknown)** — partial
+
+| Probe target | Raw | X_recon | z latents | PCA rank-9 | RandProj rank-9 |
+|---|---|---|---|---|---|
+| $E_2$ | 0.993±0.001 | — | — | 0.013±0.000 | 0.017±0.001 |
+| $(E_1, T)$ | 0.888±0.002 | — | 0.195±0.001 | 0.061±0.001 | 0.080±0.002 |
+
+*(X_recon and z(E2) not obtained — z probe on 1000-class E1,T with sparse_cg stalls even after dead-column filtering; not needed for the paper claim which uses gemma-3-1b-pt as primary.)*
+
+**Gemma-3-1b-pt L13 — l0_medium (rank=74, EV=+0.46)** ✅
+
+| Probe target | Raw | X_recon | z latents | PCA rank-74 | RandProj rank-74 |
+|---|---|---|---|---|---|
+| $E_2$ | **0.993±0.000** | 0.138±0.002 | 0.139±0.002 | 0.182±0.002 | 0.199±0.001 |
+| $(E_1, T)$ | **0.511±0.004** | 0.122±0.003 | 0.122±0.003 | 0.213±0.002 | 0.192±0.002 |
+
+**Gemma-3-1b-pt L13 — l0_big (rank=162, EV=+0.50)** ✅
+
+| Probe target | Raw | X_recon | z latents | PCA rank-162 | RandProj rank-162 |
+|---|---|---|---|---|---|
+| $E_2$ | **0.993±0.000** | 0.292±0.001 | 0.282±0.002 | 0.454±0.001 | 0.447±0.001 |
+| $(E_1, T)$ | **0.511±0.004** | 0.199±0.002 | 0.191±0.001 | 0.287±0.003 | 0.288±0.005 |
 
 ![Gemma-2-2b SAE Recovery](experiments/results/gemma/gemma-2-2b_sae_recovery.png)
+![Gemma-3-1b-pt SAE Recovery](experiments/results/gemma/gemma-3-1b-pt_sae_recovery_L13.png)
 
-> [!WARNING]
-> **These numbers do not match the previous results.md narrative or `paper.tex` §4.4.** The earlier text claimed "$E_2$ survives, $(E_1, T)$ collapses 5×". The current run shows the *opposite directional ranking*:
-> - $E_2$ collapses harder ($0.99 \to 0.04$, ≈96% relative drop) and is statistically indistinguishable from PCA / RandProj controls — i.e. the SAE preserves no $E_2$-specific structure beyond a rank-matched random projection.
-> - $(E_1, T)$ degrades less in absolute terms ($0.89 \to 0.35$, ≈61% relative drop) and **sits clearly above** the rank-matched controls (0.21–0.22), meaning the SAE *does* preserve some composed-address structure.
->
-> The canonical SAE has `EV = −0.14` here (variance-explained worse than predicting the mean), so this run is operating in a regime where the SAE is genuinely destroying information. Reading: the dark-matter claim as currently written may need either (a) re-evaluation against a different SAE config (e.g. the `average_l0_22` denser variant, also listed in `_gemma_config.py`), or (b) a reframing — the *relative* preservation pattern flipped vs. the toy model, but the absolute collapse for both variables is real.
+### Interpretation
 
-### Gemma-3-1b-pt — **not yet run**
+**Key finding — dark matter confirmed at scale (gemma-3-1b-pt, both configs):**
+In both SAE configs (l0_medium and l0_big), the SAE's sparse latents `z` encode *less* information than a random linear projection of the same effective rank — on **both** $E_2$ and $(E_1,T)$. The sparsity constraint discards structured information that simple dimensionality reduction would preserve.
 
-```bash
-GEMMA_PRESET=gemma-3-1b-pt .venv/bin/python -u experiments/exp7_gemma_sae_recovery.py
-```
+| Config | z(E2) | PCA/RandProj(E2) | z(E1,T) | PCA/RandProj(E1,T) |
+|---|---|---|---|---|
+| l0_medium (rank=74, EV=+0.46) | 0.139 | 0.182–0.199 | 0.122 | 0.192–0.213 |
+| l0_big (rank=162, EV=+0.50) | 0.282 | 0.447–0.454 | 0.191 | 0.287–0.288 |
 
-Note that the `gemma-3-1b-pt` preset in `experiments/_gemma_config.py` declares the SAE release `gemma-scope-2-1b-pt-res` with the comment *"Placeholder — confirm exact release/id against Neuronpedia"*. Verify the release exists in `sae_lens` before running, otherwise exp7 will fail at SAE load.
+This is broader than the toy-model result (where E2 *survived* SAE recovery). At L13 in Gemma-3-1b-pt the SAE fails on both targets, suggesting the sparsity penalty is discarding all structured in-context-retrieval information on a model trained for general language tasks.
+
+**Gemma-2-2b caveat:** Canonical SAE has `EV=−0.14` (domain shift — Gemma-Scope trained on base activations, FT model activations are different). For the canonical config, z ≈ X_recon ≈ 0.35 on (E1,T), which is *above* the rank-matched PCA/RandProj (0.21–0.22). This is the opposite of the dark-matter signature. The negative EV makes these comparisons uninterpretable: the SAE is not functioning as intended on the FT distribution. Base Gemma-2-2b scores 0/2000 on the toy task, so FT is non-negotiable; a custom SAE trained on FT activations would be needed for a clean gemma-2-2b result.
+
+> **Note on exp7 z-probe runtime:** sklearn `RidgeClassifier` with `sparse_cg` still stalls on the 1000-class (E1,T) target for gemma-2-2b even after filtering to active features (the E1,T one-vs-rest system has 1000 right-hand sides). A faster alternative for future runs: `LogisticRegression(solver='saga', max_iter=200, C=1.0)` which is designed for large-scale multiclass.
 

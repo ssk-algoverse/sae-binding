@@ -148,10 +148,23 @@ def probe(X, y, seed=0, n_splits=3, min_count=5):
     Xf, yf = X[mask], y[mask]
     if len(np.unique(yf)) < 2:
         return float("nan")
+    # SAE z latents: drop always-zero columns (16k → few hundred active).
+    # Detect sparsity BEFORE filtering to decide the solver — dense matrices
+    # (raw X, X_recon, PCA, RandProj) should use the default Cholesky path;
+    # only genuinely sparse z-latent matrices benefit from sparse_cg.
+    sparsity = (Xf == 0).mean()
+    if sparsity > 0.5:
+        # Drop dead columns for truly sparse inputs (SAE z latents).
+        active = np.any(Xf != 0, axis=0)
+        if active.sum() < Xf.shape[1]:
+            Xf = Xf[:, active]
+        solver = "sparse_cg"
+    else:
+        solver = "auto"  # Cholesky — fast for dense matrices
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
     accs = []
     for tr, te in skf.split(Xf, yf):
-        clf = RidgeClassifier(alpha=1.0)
+        clf = RidgeClassifier(alpha=1.0, solver=solver)
         clf.fit(Xf[tr], yf[tr])
         accs.append(clf.score(Xf[te], yf[te]))
     return float(np.mean(accs))
